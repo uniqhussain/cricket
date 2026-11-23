@@ -6,13 +6,34 @@ import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
 import GroundSettings, { useGrounds } from './ground-settings'
 import PhotoSignIn from './photo-sign-in'
 
-type Player = { id: string; name: string; nickname?: string; photo?: string }
+const roles = ['Batter', 'Bowler', 'All-rounder', 'Wicketkeeper'] as const
+const battingHands = ['Right-hand bat', 'Left-hand bat'] as const
+const bowlingStyles = [
+  "Doesn't bowl", 'Right-arm fast', 'Right-arm medium', 'Left-arm fast',
+  'Right-arm off-break', 'Right-arm leg-break', 'Left-arm orthodox', 'Left-arm wrist-spin',
+] as const
+type Player = {
+  id: string
+  name: string
+  nickname?: string
+  photo?: string
+  role?: typeof roles[number]
+  jersey?: string
+  batting?: typeof battingHands[number]
+  bowling?: typeof bowlingStyles[number]
+  isCaptain?: boolean
+}
 const registryKey = 'turf-cricket-players-v1'
 
 export default function TeamSetup({ onStart }: { onStart: (match: Match) => void }) {
   const [players, setPlayers] = useState<Player[]>([])
   const [name, setName] = useState('')
   const [nickname, setNickname] = useState('')
+  const [role, setRole] = useState<typeof roles[number] | ''>('')
+  const [jersey, setJersey] = useState('')
+  const [batting, setBatting] = useState<typeof battingHands[number]>('Right-hand bat')
+  const [bowling, setBowling] = useState<typeof bowlingStyles[number]>("Doesn't bowl")
+  const [isCaptain, setIsCaptain] = useState(false)
   const [photo, setPhoto] = useState('')
   const [processingPhoto, setProcessingPhoto] = useState(false)
   const [savingPlayer, setSavingPlayer] = useState(false)
@@ -41,7 +62,10 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
     const player = players.find(player => player.id === id)!
     return <span className="player-card">
       {player.photo && <img src={player.photo} alt={player.name} width={48} height={48} />}
-      <span>{player.name}{player.nickname && <small>{player.nickname}</small>}</span>
+      <span>{player.name}{player.nickname && <small>{player.nickname}</small>}
+        {player.role && <small>{player.role}{player.jersey ? ' · #' + player.jersey : ''}{player.isCaptain ? ' · Captain' : ''}</small>}
+        {player.batting && <small>{player.batting}{player.bowling && player.bowling !== "Doesn't bowl" ? ' · ' + player.bowling : ''}</small>}
+      </span>
     </span>
   }
 
@@ -60,6 +84,14 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
         event.preventDefault()
         const trimmed = name.trim()
         if (!trimmed) return
+        if (!role) {
+          setError('Select a player role.')
+          return
+        }
+        if (jersey && !/^\d{1,3}$/.test(jersey)) {
+          setError('Enter a jersey number from 0 to 999.')
+          return
+        }
         if (players.some(player => player.name.toLowerCase() === trimmed.toLowerCase())) {
           setError('This player is already in the list.')
           return
@@ -72,11 +104,19 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
             savedPhoto = await uploadPlayerPhoto(photo)
             setUploadedPhoto(savedPhoto)
           }
-          const updated = [...players, { id: crypto.randomUUID(), name: trimmed, nickname: nickname.trim(), photo: savedPhoto }]
+          const updated = [...players, {
+            id: crypto.randomUUID(), name: trimmed, nickname: nickname.trim(), photo: savedPhoto,
+            role, jersey, batting, bowling, isCaptain,
+          }]
           localStorage.setItem(registryKey, JSON.stringify(updated))
           setPlayers(updated)
           setName('')
           setNickname('')
+          setRole('')
+          setJersey('')
+          setBatting('Right-hand bat')
+          setBowling("Doesn't bowl")
+          setIsCaptain(false)
           setPhoto('')
           setUploadedPhoto('')
           setPhotoInputKey(key => key + 1)
@@ -84,8 +124,25 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
         } catch (err) { setError(err instanceof Error ? err.message : 'Could not save this player. Please retry.') }
         finally { setSavingPlayer(false) }
       }}>
-        <label>Player name<input value={name} disabled={savingPlayer} onChange={e => setName(e.target.value)} required maxLength={80} /></label>
+        <label>Full name<input value={name} disabled={savingPlayer} onChange={e => setName(e.target.value)} required maxLength={80} /></label>
         <label>Nickname (optional)<input value={nickname} disabled={savingPlayer} onChange={e => setNickname(e.target.value)} maxLength={40} /></label>
+        <fieldset disabled={savingPlayer}>
+          <legend>Role</legend>
+          <div className="role-options">{roles.map(option => <label key={option}>
+            <input type="radio" name="role" value={option} checked={role === option} onChange={() => setRole(option)} required />
+            {option}
+          </label>)}</div>
+        </fieldset>
+        <div className="grid">
+          <label>Jersey number (optional)<input value={jersey} disabled={savingPlayer} onChange={e => setJersey(e.target.value)} inputMode="numeric" pattern="[0-9]{1,3}" maxLength={3} placeholder="#" /></label>
+          <label>Batting<select value={batting} disabled={savingPlayer} onChange={e => setBatting(e.target.value as typeof battingHands[number])}>
+            {battingHands.map(option => <option key={option}>{option}</option>)}
+          </select></label>
+        </div>
+        <label>Bowling style (optional)<select value={bowling} disabled={savingPlayer} onChange={e => setBowling(e.target.value as typeof bowlingStyles[number])}>
+          {bowlingStyles.map(option => <option key={option}>{option}</option>)}
+        </select></label>
+        <label className="captain-option"><input type="checkbox" checked={isCaptain} disabled={savingPlayer} onChange={e => setIsCaptain(e.target.checked)} /> Club captain</label>
         <label>Photo (optional)<input key={photoInputKey} type="file" accept="image/jpeg,image/png,image/webp" disabled={processingPhoto || savingPlayer} onChange={async event => {
           const file = event.target.files?.[0]
           if (!file) return
