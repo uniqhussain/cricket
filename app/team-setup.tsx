@@ -187,7 +187,7 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
         return
       }
       const sides: Match['sides'] = [members[0].map(playerName), members[1].map(playerName)]
-      onStart({ ground: { ...ground }, teamNames, sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0 })
+      onStart({ startedAt: Date.now(), ground: { ...ground }, teamNames, sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0 })
     }}>
       <h2>Assign players to teams</h2>
       <label>Match ground<select required value={groundId} onChange={event => setGroundId(event.target.value)}>

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import TeamSetup from './team-setup'
 import { replay, type Delivery, type Rules } from './scoring'
 
-export type Match = { ground?: { id: string; name: string }; overs?: number; teamNames?: [string, string]; sides: [string[], string[]]; games: [Delivery[], Delivery[]]; innings: 0 | 1; lastMan: boolean; designations: [string, string] }
+export type Match = { startedAt?: number; stoppedAt?: number; ground?: { id: string; name: string }; overs?: number; teamNames?: [string, string]; sides: [string[], string[]]; games: [Delivery[], Delivery[]]; innings: 0 | 1; lastMan: boolean; designations: [string, string] }
 
 function rulesFor(match: Match, innings: 0 | 1): Rules {
   return {
@@ -25,6 +25,16 @@ export default function Page() {
   const [bowler, setBowler] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(0)
+  const [now, setNow] = useState(() => Date.now())
+  const startedAt = match?.startedAt
+  const stoppedAt = match?.stoppedAt
+
+  useEffect(() => {
+    if (!startedAt || stoppedAt) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 250)
+    return () => window.clearInterval(timer)
+  }, [startedAt, stoppedAt])
 
   useEffect(() => {
     try {
@@ -61,7 +71,7 @@ export default function Page() {
   const activeBowler = score?.currentBowler ?? (available.includes(bowler) ? bowler : '')
 
   function addBall(kind: Delivery['kind'], runs: number, boundary?: 4 | 6, dismissed?: string, physicalRuns = runs) {
-    if (!match || !rules) return
+    if (!match || !rules || stoppedAt) return
     const ball: Delivery = { kind, batRuns: runs, boundary, dismissed, bowler: activeBowler, physicalRuns }
     const games: Match['games'] = [...match.games]
     games[match.innings] = [...games[match.innings], ball]
@@ -74,6 +84,10 @@ export default function Page() {
     }
   }
 
+  const seconds = startedAt ? Math.max(0, Math.floor(((stoppedAt ?? now) - startedAt) / 1000)) : 0
+  const duration = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map(value => String(value).padStart(2, '0')).join(':')
+
   return <main>
     <header>Turf Cricket</header>
     <h1>{match ? 'Match scorer' : 'Set up a match'}</h1>
@@ -82,6 +96,19 @@ export default function Page() {
     {!ready && <p>Opening scorer…</p>}
     {ready && !match && <TeamSetup onStart={save} />}
     {match && score && rules && deliveries && <>
+      <section aria-label="Match timing">
+        <h2>Match timer</h2>
+        <p className="score" role="timer">{duration}</p>
+        {startedAt && <p>Started {new Date(startedAt).toLocaleString()}</p>}
+        {stoppedAt && <p>Stopped {new Date(stoppedAt).toLocaleString()}</p>}
+        {!startedAt && <button onClick={() => save({ ...match, startedAt: Date.now() })}>Start timer</button>}
+        {startedAt && !stoppedAt && <button onClick={() => {
+          if (!score.complete || match.innings !== 1) {
+            if (!window.confirm('Stop this match now? Scoring will end.')) return
+          }
+          save({ ...match, stoppedAt: Date.now() })
+        }}>Stop match</button>}
+      </section>
       <section aria-live="polite">
         {match.ground && <p className="muted">{match.ground.name}</p>}
         <div>{match.teamNames?.[match.innings] ?? ('Team ' + (match.innings === 0 ? 'A' : 'B'))} batting</div>
@@ -90,7 +117,7 @@ export default function Page() {
         {rules.target !== undefined && <p>Target {rules.target} · {Math.max(0, rules.target - score.runs)} needed from {rules.overs * 6 - score.legal} balls</p>}
         {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? (match.teamNames?.[1] ?? 'Team B') + ' wins' : score.runs === rules.target! - 1 ? 'Match tied' : (match.teamNames?.[0] ?? 'Team A') + ' wins'}</strong>}
       </section>
-      {!score.complete && <section>
+      {!score.complete && !stoppedAt && <section>
         <p><strong>{score.striker}</strong> on strike{score.partner ? ' · ' + score.partner + ' at the other end' : ' · batting alone'}</p>
         <label>Bowler<select value={activeBowler} disabled={!!score.currentBowler} onChange={e => setBowler(e.target.value)}>
           <option value="">Select bowler</option>
@@ -109,8 +136,8 @@ export default function Page() {
         </div>
       </section>}
       <section className="actions">
-        {score.complete && match.innings === 0 && <button onClick={() => { setBowler(''); save({ ...match, innings: 1 }) }}>Start chase</button>}
-        <button disabled={!deliveries.length && match.innings === 0} onClick={() => {
+        {!stoppedAt && score.complete && match.innings === 0 && <button onClick={() => { setBowler(''); save({ ...match, innings: 1 }) }}>Start chase</button>}
+        <button disabled={!!stoppedAt || (!deliveries.length && match.innings === 0)} onClick={() => {
           if (!deliveries.length && match.innings === 1) {
             save({ ...match, innings: 0 })
             return
@@ -119,7 +146,7 @@ export default function Page() {
           games[match.innings] = deliveries.slice(0, -1)
           save({ ...match, games })
         }}>{!deliveries.length && match.innings === 1 ? 'Back to first innings' : 'Undo last delivery'}</button>
-        {score.complete && match.innings === 1 && <button onClick={() => {
+        {(stoppedAt || (!startedAt && score.complete && match.innings === 1)) && <button onClick={() => {
           if (!window.confirm('Clear this saved match and set up another?')) return
           try { localStorage.removeItem(storageKey); setMatch(null); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}
