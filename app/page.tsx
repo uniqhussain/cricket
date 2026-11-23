@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import TeamSetup from './team-setup'
 import { replay, type Delivery, type Rules } from './scoring'
 
-type Match = { sides: [string[], string[]]; games: [Delivery[], Delivery[]]; innings: 0 | 1; lastMan: boolean; designations: [string, string] }
+export type Match = { ground?: { id: string; name: string }; overs?: number; teamNames?: [string, string]; sides: [string[], string[]]; games: [Delivery[], Delivery[]]; innings: 0 | 1; lastMan: boolean; designations: [string, string] }
 
 function rulesFor(match: Match, innings: 0 | 1): Rules {
   return {
-    overs: 5,
+    overs: match.overs ?? 5,
     batters: match.sides[innings],
     bowlers: match.sides[1 - innings],
     designated: match.designations[innings],
@@ -79,30 +80,15 @@ export default function Page() {
     <p className="muted">Local scoring preview · Saved in this browser</p>
     {error && <p className="error" role="alert">{error}</p>}
     {!ready && <p>Opening scorer…</p>}
-    {ready && !match && <section><form onSubmit={event => {
-      event.preventDefault()
-      const form = new FormData(event.currentTarget)
-      const names = (side: string) => String(form.get(side)).split(',').map(name => name.trim()).filter(Boolean)
-      const sides: Match['sides'] = [names('a'), names('b')]
-      if (sides.some(side => side.length !== 4 || new Set(side).size !== 4)) {
-        setError('Enter four distinct player names per side.')
-        return
-      }
-      save({ sides, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0 })
-    }}>
-      <p>Four players per side, five overs each. The first player listed for each team can bowl two overs.</p>
-      <label>Team A players in batting order<input name="a" placeholder="Four names, separated by commas" required /></label>
-      <label>Team B players in batting order<input name="b" placeholder="Four names, separated by commas" required /></label>
-      <label><input style={{ width: 'auto', minHeight: 0 }} type="checkbox" name="lastMan" defaultChecked /> Last batter may continue alone</label>
-      <button type="submit">Start match</button>
-    </form></section>}
+    {ready && !match && <TeamSetup onStart={save} />}
     {match && score && rules && deliveries && <>
       <section aria-live="polite">
-        <div>Team {match.innings === 0 ? 'A' : 'B'} batting</div>
+        {match.ground && <p className="muted">{match.ground.name}</p>}
+        <div>{match.teamNames?.[match.innings] ?? ('Team ' + (match.innings === 0 ? 'A' : 'B'))} batting</div>
         <p className="score">{score.runs}/{score.wickets}</p>
         <p>{score.overs} / {rules.overs} overs · {score.extras} extras</p>
         {rules.target !== undefined && <p>Target {rules.target} · {Math.max(0, rules.target - score.runs)} needed from {rules.overs * 6 - score.legal} balls</p>}
-        {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? 'Team B wins' : score.runs === rules.target! - 1 ? 'Match tied' : 'Team A wins'}</strong>}
+        {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? (match.teamNames?.[1] ?? 'Team B') + ' wins' : score.runs === rules.target! - 1 ? 'Match tied' : (match.teamNames?.[0] ?? 'Team A') + ' wins'}</strong>}
       </section>
       {!score.complete && <section>
         <p><strong>{score.striker}</strong> on strike{score.partner ? ' · ' + score.partner + ' at the other end' : ' · batting alone'}</p>

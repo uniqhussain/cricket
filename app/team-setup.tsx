@@ -1,0 +1,178 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import type { Match } from './page'
+import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
+import GroundSettings, { useGrounds } from './ground-settings'
+import PhotoSignIn from './photo-sign-in'
+
+type Player = { id: string; name: string; nickname?: string; photo?: string }
+const registryKey = 'turf-cricket-players-v1'
+
+export default function TeamSetup({ onStart }: { onStart: (match: Match) => void }) {
+  const [players, setPlayers] = useState<Player[]>([])
+  const [name, setName] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [photo, setPhoto] = useState('')
+  const [processingPhoto, setProcessingPhoto] = useState(false)
+  const [savingPlayer, setSavingPlayer] = useState(false)
+  const [uploadedPhoto, setUploadedPhoto] = useState('')
+  const [photoInputKey, setPhotoInputKey] = useState(0)
+  const [teams, setTeams] = useState<[string, string]>(['', ''])
+  const [members, setMembers] = useState<[string[], string[]]>([[], []])
+  const [selection, setSelection] = useState<[string, string]>(['', ''])
+  const [error, setError] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [step, setStep] = useState<'players' | 'teams' | 'settings'>('players')
+  const groundSettings = useGrounds()
+  const [groundId, setGroundId] = useState('')
+
+  useEffect(() => {
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(registryKey) ?? '[]')
+      if (!Array.isArray(stored) || !stored.every(p => typeof p.id === 'string' && typeof p.name === 'string')) throw new Error()
+      setPlayers(stored)
+    } catch { setError('Could not open the saved player list.') }
+    setLoaded(true)
+  }, [])
+
+  const playerName = (id: string) => players.find(player => player.id === id)!.name
+  const playerCard = (id: string) => {
+    const player = players.find(player => player.id === id)!
+    return <span className="player-card">
+      {player.photo && <img src={player.photo} alt={player.name} width={48} height={48} />}
+      <span>{player.name}{player.nickname && <small>{player.nickname}</small>}</span>
+    </span>
+  }
+
+  return <>
+    <nav className="actions" aria-label="Match setup">
+      <button onClick={() => setStep('players')} aria-pressed={step === 'players'}>Players ({players.length})</button>
+      <button onClick={() => setStep('teams')} aria-pressed={step === 'teams'}>Assign teams</button>
+      <button onClick={() => setStep('settings')} aria-pressed={step === 'settings'}>Settings</button>
+    </nav>
+    {error && <p role="alert" className="error">{error}</p>}
+    {step === 'settings' && <GroundSettings {...groundSettings} />}
+    {step === 'players' && <section>
+      <h2>Add players</h2>
+      <PhotoSignIn />
+      <form onSubmit={async event => {
+        event.preventDefault()
+        const trimmed = name.trim()
+        if (!trimmed) return
+        if (players.some(player => player.name.toLowerCase() === trimmed.toLowerCase())) {
+          setError('This player is already in the list.')
+          return
+        }
+        if (processingPhoto || savingPlayer) return
+        setSavingPlayer(true)
+        try {
+          let savedPhoto = uploadedPhoto
+          if (photo && !savedPhoto) {
+            savedPhoto = await uploadPlayerPhoto(photo)
+            setUploadedPhoto(savedPhoto)
+          }
+          const updated = [...players, { id: crypto.randomUUID(), name: trimmed, nickname: nickname.trim(), photo: savedPhoto }]
+          localStorage.setItem(registryKey, JSON.stringify(updated))
+          setPlayers(updated)
+          setName('')
+          setNickname('')
+          setPhoto('')
+          setUploadedPhoto('')
+          setPhotoInputKey(key => key + 1)
+          setError('')
+        } catch (err) { setError(err instanceof Error ? err.message : 'Could not save this player. Please retry.') }
+        finally { setSavingPlayer(false) }
+      }}>
+        <label>Player name<input value={name} disabled={savingPlayer} onChange={e => setName(e.target.value)} required maxLength={80} /></label>
+        <label>Nickname (optional)<input value={nickname} disabled={savingPlayer} onChange={e => setNickname(e.target.value)} maxLength={40} /></label>
+        <label>Photo (optional)<input key={photoInputKey} type="file" accept="image/jpeg,image/png,image/webp" disabled={processingPhoto || savingPlayer} onChange={async event => {
+          const file = event.target.files?.[0]
+          if (!file) return
+          setPhoto('')
+          setUploadedPhoto('')
+          setProcessingPhoto(true)
+          setError('')
+          try { setPhoto(await preparePlayerPhoto(file)) }
+          catch (err) { setError(err instanceof Error ? err.message : 'Could not read this photo.') }
+          finally { setProcessingPhoto(false) }
+        }} /></label>
+        {processingPhoto && <p role="status">Preparing photo…</p>}
+        {photo && <div className="player-card">
+          <img src={photo} alt="Selected player photo preview" width={64} height={64} />
+          <button type="button" disabled={savingPlayer} onClick={() => { setPhoto(''); setUploadedPhoto(''); setPhotoInputKey(key => key + 1) }}>Remove photo</button>
+        </div>}
+        <button disabled={!loaded || processingPhoto || savingPlayer}>{savingPlayer ? 'Saving player…' : 'Add player'}</button>
+      </form>
+      {players.length ? <ul className="player-list">{players.map(player => <li key={player.id}>{playerCard(player.id)}</li>)}</ul> : <p>Add your players one at a time.</p>}
+      <button onClick={() => setStep('teams')} disabled={!players.length}>Continue to teams</button>
+    </section>}
+    {step === 'teams' && <section><form onSubmit={event => {
+      event.preventDefault()
+      const teamNames: [string, string] = [teams[0].trim(), teams[1].trim()]
+      if (!teamNames.every(Boolean) || teamNames[0].toLowerCase() === teamNames[1].toLowerCase()) {
+        setError('Enter a different name for each team.')
+        return
+      }
+      if (members.some(team => team.length < 2)) {
+        setError('Assign at least two players to each team.')
+        return
+      }
+      const form = new FormData(event.currentTarget)
+      const ground = groundSettings.grounds.find(ground => ground.id === groundId)
+      if (!ground) {
+        setError('Add a ground in Settings and select it for this match.')
+        return
+      }
+      const overs = Number(form.get('overs'))
+      if (overs > Math.min(members[0].length, members[1].length) + 1) {
+        setError('With these bowling quotas, choose fewer overs or add more players.')
+        return
+      }
+      const sides: Match['sides'] = [members[0].map(playerName), members[1].map(playerName)]
+      onStart({ ground: { ...ground }, teamNames, sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0 })
+    }}>
+      <h2>Assign players to teams</h2>
+      <label>Match ground<select required value={groundId} onChange={event => setGroundId(event.target.value)}>
+        <option value="">Select ground</option>
+        {groundSettings.grounds.map(ground => <option key={ground.id} value={ground.id}>{ground.name}</option>)}
+      </select></label>
+      {!groundSettings.grounds.length && <button type="button" onClick={() => setStep('settings')}>Add ground in Settings</button>}
+      <p>Members bat in the order added. The first member can bowl two overs, and each other member one.</p>
+      {([0, 1] as const).map(index => <fieldset key={index}>
+        <legend>Team {index === 0 ? 'A' : 'B'}</legend>
+        <label>Team name<input required maxLength={80} value={teams[index]} onChange={e => {
+          const updated: [string, string] = [...teams]
+          updated[index] = e.target.value
+          setTeams(updated)
+        }} /></label>
+        <ol>{members[index].map(id => <li key={id}>{playerCard(id)} <button type="button" aria-label={'Remove ' + playerName(id) + ' from team'} onClick={() => {
+          const updated: [string[], string[]] = [...members]
+          updated[index] = members[index].filter(member => member !== id)
+          setMembers(updated)
+        }}>Remove</button></li>)}</ol>
+        <label>Choose player<select value={selection[index]} onChange={e => {
+          const updated: [string, string] = [...selection]
+          updated[index] = e.target.value
+          setSelection(updated)
+        }}>
+          <option value="">Select a registered player</option>
+          {players.filter(player => !members[index].includes(player.id)).map(player => <option key={player.id} value={player.id}>{player.name}{player.nickname ? ' (' + player.nickname + ')' : ''}</option>)}
+        </select></label>
+        <button type="button" disabled={!selection[index]} onClick={() => {
+          const updated: [string[], string[]] = [...members]
+          updated[index] = [...members[index], selection[index]]
+          setMembers(updated)
+          const cleared: [string, string] = [...selection]
+          cleared[index] = ''
+          setSelection(cleared)
+          setError('')
+        }}>Add to team</button>
+        <p>{members[index].length} members assigned</p>
+      </fieldset>)}
+      <label>Overs per innings<input name="overs" type="number" defaultValue={5} min={1} max={20} required /></label>
+      <label><input style={{ width: 'auto', minHeight: 0 }} type="checkbox" name="lastMan" defaultChecked /> Last batter may continue alone</label>
+      <button>Start match</button>
+    </form></section>}
+  </>
+}
