@@ -1,26 +1,29 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
-import { replay, type Delivery, type Rules } from './scoring'
-
-export type Match = { startedAt?: number; stoppedAt?: number; ground?: { id: string; name: string }; overs?: number; teamNames?: [string, string]; sides: [string[], string[]]; games: [Delivery[], Delivery[]]; innings: 0 | 1; lastMan: boolean; designations: [string, string] }
-
-function rulesFor(match: Match, innings: 0 | 1): Rules {
-  return {
-    overs: match.overs ?? 5,
-    batters: match.sides[innings],
-    bowlers: match.sides[1 - innings],
-    designated: match.designations[innings],
-    lastMan: match.lastMan,
-    target: innings === 1 ? replay(rulesFor(match, 0), match.games[0]).runs + 1 : undefined,
-  }
-}
+import PhotoSignIn from './photo-sign-in'
+import UserSettings, { sharedRequest, type Profile, type SessionUser } from './user-settings'
+import { replay, type Delivery } from './scoring'
+import { frozenOvers, rulesFor, type Account, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
 
 const storageKey = 'turf-cricket-match-v1'
 
 export default function Page() {
-  const [match, setMatch] = useState<Match | null>(null)
+  const [localMatch, setLocalMatch] = useState<Match | null>(null)
+  const [shared, setShared] = useState<SharedMatch | null>(null)
+  const [user, setUser] = useState<SessionUser | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [matches, setMatches] = useState<{ id: string; name: string; status: string }[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [setup, setSetup] = useState<'shared' | 'local' | null>(null)
+  const [showLocal, setShowLocal] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const writing = useRef(false)
+  const selection = useRef(0)
+  const sessionVersion = useRef(0)
+  const match = shared?.cricket_state ?? (showLocal ? localMatch : null)
   const [ready, setReady] = useState(false)
   const [bowler, setBowler] = useState('')
   const [error, setError] = useState('')
@@ -42,19 +45,105 @@ export default function Page() {
       if (saved) {
         const restored: Match = JSON.parse(saved)
         replay(rulesFor(restored, restored.innings), restored.games[restored.innings])
-        setMatch(restored)
+        setLocalMatch(restored)
       }
     } catch {
       setError('The saved match could not be restored.')
     } finally {
       setReady(true)
     }
+    void refreshSession().catch(report)
   }, [])
+
+  function report(error: unknown) {
+    setError(error instanceof Error ? error.message : 'Could not update the match.')
+  }
+
+  async function refreshSession() {
+    const version = ++sessionVersion.current
+    const data = await sharedRequest<{ user: SessionUser | null; profile?: Profile | null; matches: typeof matches }>()
+    if (version !== sessionVersion.current) return
+    setUser(data.user)
+    setProfile(data.profile ?? null)
+    setMatches(data.matches)
+    if (!data.user) {
+      selection.current++
+      setShared(null)
+      setSetup(null)
+    }
+    const directory = data.user?.admin
+      ? await sharedRequest<{ accounts: Account[]; profiles: Profile[] }>('?users')
+      : { accounts: [], profiles: [] }
+    if (version !== sessionVersion.current) return
+    setAccounts(directory.accounts)
+    setProfiles(directory.profiles)
+  }
+
+  const sharedId = shared?.id
+  useEffect(() => {
+    if (!sharedId) return
+    let active = true
+    let loading = false
+    const timer = window.setInterval(async () => {
+      if (loading || writing.current) return
+      loading = true
+      try {
+        const data = await sharedRequest<{ match: SharedMatch; user: SessionUser }>('?match=' + sharedId)
+        if (active) {
+          setShared(previous => previous?.id === sharedId && previous.revision <= data.match.revision ? data.match : previous)
+          setUser(data.user)
+        }
+      } catch (error) { if (active) report(error) }
+      finally { loading = false }
+    }, 4000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [sharedId])
+
+  async function openMatch(id: string) {
+    const version = ++selection.current
+    try {
+      const data = await sharedRequest<{ match: SharedMatch; user: SessionUser }>('?match=' + id)
+      if (version !== selection.current) return
+      setUser(data.user)
+      setShared(data.match)
+      setShowLocal(false)
+      setSetup(null)
+      setBowler('')
+      setRunning(0)
+      setError('')
+    } catch (error) { if (version === selection.current) report(error) }
+  }
+
+  async function sharedWrite(body: object) {
+    if (writing.current) return
+    writing.current = true
+    setBusy(true)
+    setError('')
+    const version = selection.current
+    try {
+      const data = await sharedRequest<{ match: SharedMatch }>('', body)
+      if (version !== selection.current) return
+      setShared(previous => previous?.id === data.match.id && previous.revision > data.match.revision ? previous : data.match)
+      setSetup(null)
+      setRunning(0)
+      if ('operation' in body && body.operation === 'create') void refreshSession().catch(report)
+    } catch (error) { report(error) }
+    finally { writing.current = false; setBusy(false) }
+  }
+
+  function updateScore(action: ScoreOperation) {
+    if (shared) void sharedWrite({ ...action, id: shared.id, revision: shared.revision })
+  }
+
+  function createMatch(match: Match, roster?: RosterPlayer[]) {
+    if (setup === 'shared') void sharedWrite({ operation: 'create', match, roster })
+    else { save(match); setShowLocal(true); setSetup(null) }
+  }
 
   function save(updated: Match) {
     try {
       localStorage.setItem(storageKey, JSON.stringify(updated))
-      setMatch(updated)
+      setLocalMatch(updated)
       setError('')
     } catch {
       setError('This browser could not save the match.')
@@ -69,10 +158,12 @@ export default function Page() {
     && (score.quota[name] ?? 0) < (name === rules.designated ? 12 : 6)
   ) : []
   const activeBowler = score?.currentBowler ?? (available.includes(bowler) ? bowler : '')
+  const frozenCount = match ? frozenOvers(match, match.innings).at(-1)?.end ?? 0 : 0
 
   function addBall(kind: Delivery['kind'], runs: number, boundary?: 4 | 6, dismissed?: string, physicalRuns = runs) {
     if (!match || !rules || stoppedAt) return
     const ball: Delivery = { kind, batRuns: runs, boundary, dismissed, bowler: activeBowler, physicalRuns }
+    if (shared) { updateScore({ operation: 'ball', ball }); return }
     const games: Match['games'] = [...match.games]
     games[match.innings] = [...games[match.innings], ball]
     try {
@@ -90,23 +181,55 @@ export default function Page() {
 
   return <main>
     <header>Turf Cricket</header>
-    <h1>{match ? 'Match scorer' : 'Set up a match'}</h1>
-    <p className="muted">Local scoring preview · Saved in this browser</p>
+    <h1>{match ? 'Match scorer' : 'Matches'}</h1>
+    <section>
+      <PhotoSignIn scoring onSession={() => {
+        selection.current++
+        setShared(null)
+        setSetup(null)
+        setError('')
+        void refreshSession().catch(report)
+      }} />
+      {user && <UserSettings key={user.id} {...{ user, profile, accounts, profiles }} reload={refreshSession} />}
+    </section>
+    {match && <p className="muted">{shared ? 'Shared match · Saved to Supabase' : 'Local match · Saved in this browser'}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     {!ready && <p>Opening scorer…</p>}
-    {ready && !match && <TeamSetup onStart={save} />}
+    {ready && !match && <>
+      <section>
+        {user && <h2>Shared matches</h2>}
+        {user && (matches.length ? <ul>{matches.map(item => <li key={item.id}>
+          <button disabled={busy} onClick={() => void openMatch(item.id)}>{item.name}</button> · {item.status}
+        </li>)}</ul> : <p>No shared matches assigned yet.</p>)}
+        <div className="actions">
+          {user?.admin && <button disabled={busy} onClick={() => setSetup('shared')}>Set up shared match</button>}
+          {localMatch ? <button disabled={busy} onClick={() => { setShowLocal(true); setSetup(null) }}>Open local match</button>
+            : <button disabled={busy} onClick={() => setSetup('local')}>Set up local match</button>}
+        </div>
+      </section>
+      {setup && <TeamSetup key={setup} onStart={createMatch} accounts={setup === 'shared' ? accounts : undefined} profiles={profiles} busy={busy} />}
+    </>}
     {match && score && rules && deliveries && <>
+      <button disabled={busy} onClick={() => {
+        selection.current++
+        setShared(null)
+        setShowLocal(false)
+        setError('')
+        void refreshSession().catch(report)
+      }}>Back to matches</button>
+      {shared && <button disabled={busy} onClick={() => void openMatch(shared.id)}>Refresh score</button>}
       <section aria-label="Match timing">
         <h2>Match timer</h2>
         <p className="score" role="timer">{duration}</p>
         {startedAt && <p>Started {new Date(startedAt).toLocaleString()}</p>}
         {stoppedAt && <p>Stopped {new Date(stoppedAt).toLocaleString()}</p>}
-        {!startedAt && <button onClick={() => save({ ...match, startedAt: Date.now() })}>Start timer</button>}
-        {startedAt && !stoppedAt && <button onClick={() => {
+        {!startedAt && <button disabled={busy} onClick={() => shared ? updateScore({ operation: 'timer' }) : save({ ...match, startedAt: Date.now() })}>Start timer</button>}
+        {startedAt && !stoppedAt && <button disabled={busy} onClick={() => {
           if (!score.complete || match.innings !== 1) {
             if (!window.confirm('Stop this match now? Scoring will end.')) return
           }
-          save({ ...match, stoppedAt: Date.now() })
+          if (shared) updateScore({ operation: 'stop' })
+          else save({ ...match, stoppedAt: Date.now() })
         }}>Stop match</button>}
       </section>
       <section aria-live="polite">
@@ -117,7 +240,8 @@ export default function Page() {
         {rules.target !== undefined && <p>Target {rules.target} · {Math.max(0, rules.target - score.runs)} needed from {rules.overs * 6 - score.legal} balls</p>}
         {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? (match.teamNames?.[1] ?? 'Team B') + ' wins' : score.runs === rules.target! - 1 ? 'Match tied' : (match.teamNames?.[0] ?? 'Team A') + ' wins'}</strong>}
       </section>
-      {!score.complete && !stoppedAt && <section>
+      {!score.complete && !stoppedAt && <section><fieldset disabled={busy}>
+        <legend>Record delivery</legend>
         <p><strong>{score.striker}</strong> on strike{score.partner ? ' · ' + score.partner + ' at the other end' : ' · batting alone'}</p>
         <label>Bowler<select value={activeBowler} disabled={!!score.currentBowler} onChange={e => setBowler(e.target.value)}>
           <option value="">Select bowler</option>
@@ -134,10 +258,16 @@ export default function Page() {
           <button disabled={!activeBowler} onClick={() => addBall('wide', 0, undefined, undefined, running)}>Wide</button>
           <button disabled={!activeBowler} onClick={() => addBall('no-ball', running)}>No-ball</button>
         </div>
-      </section>}
+      </fieldset></section>}
       <section className="actions">
-        {!stoppedAt && score.complete && match.innings === 0 && <button onClick={() => { setBowler(''); save({ ...match, innings: 1 }) }}>Start chase</button>}
-        <button disabled={!!stoppedAt || (!deliveries.length && match.innings === 0)} onClick={() => {
+        {!stoppedAt && score.complete && match.innings === 0 && <button disabled={busy} onClick={() => {
+          setBowler('')
+          if (shared) updateScore({ operation: 'chase' })
+          else save({ ...match, innings: 1 })
+        }}>Start chase</button>}
+        <button disabled={busy || !!stoppedAt || (shared ? deliveries.length <= frozenCount
+          : (frozenCount > 0 && deliveries.length <= frozenCount) || (!deliveries.length && match.innings === 0))} onClick={() => {
+          if (shared) { updateScore({ operation: 'undo' }); return }
           if (!deliveries.length && match.innings === 1) {
             save({ ...match, innings: 0 })
             return
@@ -145,15 +275,58 @@ export default function Page() {
           const games: Match['games'] = [...match.games]
           games[match.innings] = deliveries.slice(0, -1)
           save({ ...match, games })
-        }}>{!deliveries.length && match.innings === 1 ? 'Back to first innings' : 'Undo last delivery'}</button>
-        {(stoppedAt || (!startedAt && score.complete && match.innings === 1)) && <button onClick={() => {
+        }}>{!shared && !deliveries.length && match.innings === 1 ? 'Back to first innings' : 'Undo last delivery'}</button>
+        {!shared && (stoppedAt || (!startedAt && score.complete && match.innings === 1)) && <button onClick={() => {
           if (!window.confirm('Clear this saved match and set up another?')) return
-          try { localStorage.removeItem(storageKey); setMatch(null); setBowler('') } catch { setError('Could not clear this match.') }
+          try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}
       </section>
       <section><h2>Delivery log</h2>
         {deliveries.length ? <ol>{deliveries.map((ball, i) => <li key={i}>{ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? 1 + ball.physicalRuns : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}</li>)}</ol> : <p>No deliveries yet.</p>}
       </section>
+      <section><h2>Frozen overs</h2>
+        {([0, 1] as const).map(innings => frozenOvers(match, innings).map(over => <details key={innings + ':' + over.over_number}>
+          <summary>Innings {innings + 1} · Over {over.over_number} · {over.score.runs}/{over.score.wickets} · Locked</summary>
+          <ol>{over.score.deliveries.map((ball, index) => <li key={index}>
+            {ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? ball.physicalRuns + 1 : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}
+            {shared && user?.admin && <details>
+              <summary>Correct delivery</summary>
+              <form key={shared.revision} onSubmit={event => {
+                event.preventDefault()
+                const form = new FormData(event.currentTarget)
+                const runs = Number(form.get('runs'))
+                const boundary = Number(form.get('boundary')) as 0 | 4 | 6
+                const dismissed = String(form.get('dismissed') ?? '')
+                updateScore({ operation: 'correct', innings, index: over.start + index, ball: {
+                  ...ball, batRuns: ball.kind === 'wide' ? 0 : boundary || runs,
+                  physicalRuns: boundary ? 0 : runs, boundary: boundary || undefined, dismissed: dismissed || undefined,
+                } })
+              }}>
+                <label>Runs completed<input type="number" name="runs" min={0} max={100} defaultValue={ball.physicalRuns} required /></label>
+                {ball.kind !== 'wide' && <label>Boundary<select name="boundary" defaultValue={ball.boundary ?? 0}>
+                  <option value={0}>None</option><option value={4}>Four</option><option value={6}>Six</option>
+                </select></label>}
+                {ball.kind === 'legal' && <label>Dismissed batter<select name="dismissed" defaultValue={ball.dismissed ?? ''}>
+                  <option value="">None</option>
+                  {match.sides[innings].map(batter => <option key={batter}>{batter}</option>)}
+                </select></label>}
+                <button disabled={busy}>Save correction</button>
+              </form>
+            </details>}
+          </li>)}</ol>
+        </details>))}
+        {!frozenOvers(match, 0).length && !frozenOvers(match, 1).length && <p>No completed overs yet.</p>}
+      </section>
+      {shared && <section><h2>Score updates</h2>
+        {shared.audit.length ? <ol>{shared.audit.map(entry => <li key={entry.id}>
+          {entry.details.actorName ?? entry.actor_id} · {entry.action === 'lock' ? 'Locked over ' + entry.details.over
+            : ({ ball: 'Recorded a delivery', correct: 'Corrected a delivery', undo: 'Undid a delivery',
+              chase: 'Started the chase', stop: 'Stopped the match', timer: 'Started the timer' }[entry.details.operation ?? ''] ?? entry.action)}
+          {entry.details.innings !== undefined && ' · Innings ' + (entry.details.innings + 1)}
+          {entry.details.delivery !== undefined && ' · Delivery ' + entry.details.delivery}
+          {' · ' + new Date(entry.created_at).toLocaleString()}
+        </li>)}</ol> : <p>No scoring updates yet.</p>}
+      </section>}
     </>}
   </main>
 }

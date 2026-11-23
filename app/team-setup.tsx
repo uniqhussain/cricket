@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { Match } from './page'
+import type { Account, Match, RosterPlayer } from './match'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
 import GroundSettings, { useGrounds } from './ground-settings'
 import PhotoSignIn from './photo-sign-in'
@@ -25,7 +25,12 @@ type Player = {
 }
 const registryKey = 'turf-cricket-players-v1'
 
-export default function TeamSetup({ onStart }: { onStart: (match: Match) => void }) {
+export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
+  onStart: (match: Match, roster?: RosterPlayer[]) => void
+  accounts?: Account[]
+  profiles?: { user_id: string; name: string; nickname: string }[]
+  busy?: boolean
+}) {
   const [players, setPlayers] = useState<Player[]>([])
   const [name, setName] = useState('')
   const [nickname, setNickname] = useState('')
@@ -44,7 +49,7 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
   const [selection, setSelection] = useState<[string, string]>(['', ''])
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(false)
-  const [step, setStep] = useState<'players' | 'teams' | 'settings'>('players')
+  const [step, setStep] = useState<'players' | 'teams' | 'settings'>(accounts ? 'teams' : 'players')
   const groundSettings = useGrounds()
   const [groundId, setGroundId] = useState('')
 
@@ -57,9 +62,15 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
     setLoaded(true)
   }, [])
 
-  const playerName = (id: string) => players.find(player => player.id === id)!.name
+  const rosterPlayers: Player[] = accounts
+    ? accounts.filter(account => !account.disabled).map(account => {
+      const profile = profiles.find(item => item.user_id === account.id)
+      return { id: account.id, name: profile?.name || account.label.slice(0, 80), nickname: profile?.nickname || account.label }
+    }) : players
+  const playerName = (id: string) => rosterPlayers.find(player => player.id === id)?.name ?? ''
   const playerCard = (id: string) => {
-    const player = players.find(player => player.id === id)!
+    const player = rosterPlayers.find(player => player.id === id)
+    if (!player) return <span>Unavailable account</span>
     return <span className="player-card">
       {player.photo && <img src={player.photo} alt={player.name} width={48} height={48} />}
       <span>{player.name}{player.nickname && <small>{player.nickname}</small>}
@@ -71,7 +82,7 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
 
   return <>
     <nav className="actions" aria-label="Match setup">
-      <button onClick={() => setStep('players')} aria-pressed={step === 'players'}>Players ({players.length})</button>
+      {!accounts && <button onClick={() => setStep('players')} aria-pressed={step === 'players'}>Players ({players.length})</button>}
       <button onClick={() => setStep('teams')} aria-pressed={step === 'teams'}>Assign teams</button>
       <button onClick={() => setStep('settings')} aria-pressed={step === 'settings'}>Settings</button>
     </nav>
@@ -79,7 +90,7 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
     {step === 'settings' && <GroundSettings {...groundSettings} />}
     {step === 'players' && <section>
       <h2>Add players</h2>
-      <PhotoSignIn />
+      {!accounts && <PhotoSignIn />}
       <form onSubmit={async event => {
         event.preventDefault()
         const trimmed = name.trim()
@@ -187,7 +198,14 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
         return
       }
       const sides: Match['sides'] = [members[0].map(playerName), members[1].map(playerName)]
-      onStart({ startedAt: Date.now(), ground: { ...ground }, teamNames, sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0 })
+      const roster = accounts && ([0, 1] as const).flatMap(team => members[team].map(id => ({
+        user_id: id, player_name: playerName(id), team,
+      })))
+      if (roster?.some(member => !member.player_name)) {
+        setError('Remove unavailable accounts before starting the match.')
+        return
+      }
+      onStart({ startedAt: Date.now(), ground: { ...ground }, teamNames, sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0 }, roster)
     }}>
       <h2>Assign players to teams</h2>
       <label>Match ground<select required value={groundId} onChange={event => setGroundId(event.target.value)}>
@@ -196,6 +214,7 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
       </select></label>
       {!groundSettings.grounds.length && <button type="button" onClick={() => setStep('settings')}>Add ground in Settings</button>}
       <p>Members bat in the order added. The first member can bowl two overs, and each other member one.</p>
+      {accounts && <p>Choose player accounts from User settings. Every selected player can score this match.</p>}
       {([0, 1] as const).map(index => <fieldset key={index}>
         <legend>Team {index === 0 ? 'A' : 'B'}</legend>
         <label>Team name<input required maxLength={80} value={teams[index]} onChange={e => {
@@ -214,9 +233,9 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
           setSelection(updated)
         }}>
           <option value="">Select a registered player</option>
-          {players.filter(player => !members[index].includes(player.id)).map(player => <option key={player.id} value={player.id}>{player.name}{player.nickname ? ' (' + player.nickname + ')' : ''}</option>)}
+          {rosterPlayers.filter(player => !(accounts ? members.flat() : members[index]).includes(player.id)).map(player => <option key={player.id} value={player.id}>{player.name}{player.nickname && player.nickname !== player.name ? ' (' + player.nickname + ')' : ''}</option>)}
         </select></label>
-        <button type="button" disabled={!selection[index]} onClick={() => {
+        <button type="button" disabled={!selection[index] || (accounts && members.flat().includes(selection[index]))} onClick={() => {
           const updated: [string[], string[]] = [...members]
           updated[index] = [...members[index], selection[index]]
           setMembers(updated)
@@ -229,7 +248,7 @@ export default function TeamSetup({ onStart }: { onStart: (match: Match) => void
       </fieldset>)}
       <label>Overs per innings<input name="overs" type="number" defaultValue={5} min={1} max={20} required /></label>
       <label><input style={{ width: 'auto', minHeight: 0 }} type="checkbox" name="lastMan" defaultChecked /> Last batter may continue alone</label>
-      <button>Start match</button>
+      <button disabled={busy}>Start match</button>
     </form></section>}
   </>
 }

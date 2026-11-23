@@ -1,0 +1,236 @@
+import { signedInUser } from '../photo-session/auth'
+import { applyOperation, frozenOvers, rulesFor, type Account, type AuditEntry, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
+import { replay } from '../../scoring'
+import { loginIdentifier, playerUsername } from '../../player-login'
+
+type MatchRow = { id: string; name: string; status: string; cricket_state: Match; revision: number }
+type Profile = { user_id: string; name: string; nickname: string }
+const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
+
+class RequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message) }
+}
+
+function supabaseConfig() {
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new RequestError('Shared scoring is not configured on this deployment.', 503)
+  return { url, headers: {
+    apikey: key, 'Content-Type': 'application/json',
+    ...(key.startsWith('sb_secret_') ? {} : { Authorization: 'Bearer ' + key }),
+  } }
+}
+
+async function db<T>(path: string, method = 'GET', body?: unknown, prefer?: string): Promise<T> {
+  const { url, headers } = supabaseConfig()
+  const response = await fetch(url + '/rest/v1/' + path, {
+    method, cache: 'no-store',
+    headers: {
+      ...headers,
+      ...(prefer ? { Prefer: prefer } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    if (data?.code === '42501') throw new RequestError('You do not have permission for this action.', 403)
+    if (data?.code === '40001') throw new RequestError('Someone updated this match. Check the latest score before trying again.', 409)
+    if (data?.code === '22023') throw new RequestError(data.message, 400)
+    if (data?.code === 'P0002') throw new RequestError('Match not found.', 404)
+    console.error('Shared scoring database request failed', response.status, data?.code)
+    throw new RequestError('Shared scoring is temporarily unavailable.', 503)
+  }
+  return data as T
+}
+
+async function authAdmin(path: string, method: string, body?: object) {
+  const { url, headers } = supabaseConfig()
+  const response = await fetch(url + '/auth/v1/admin/users' + path, {
+    method, headers, cache: 'no-store', body: body && JSON.stringify(body),
+  })
+  const result = await response.json().catch(() => null)
+  if (!response.ok) {
+    if (response.status === 422 || response.status === 400)
+      throw new RequestError('The user ID may already exist, or the password does not meet the project rules.', 400)
+    throw new RequestError('Could not update the player login.', 503)
+  }
+  return result
+}
+
+function rpc<T>(name: string, body: object) { return db<T>('rpc/' + name, 'POST', body) }
+
+async function session() {
+  const user = await signedInUser()
+  if (!user) return null
+  const identity = await rpc<{ admin: boolean } | null>('cricket_identity', { actor: user.id })
+  return identity ? { ...user, ...identity } : null
+}
+
+function errorResponse(error: unknown) {
+  if (error instanceof RequestError) return Response.json({ error: error.message }, { status: error.status })
+  return Response.json({ error: 'Shared scoring is temporarily unavailable.' }, { status: 503 })
+}
+
+async function loadMatch(id: string, user: { id: string; admin: boolean }) {
+  if (!uuid.test(id)) throw new RequestError('Match not found.', 404)
+  if (!user.admin) {
+    const memberships = await db<RosterPlayer[]>('match_players?select=user_id&match_id=eq.' + id + '&user_id=eq.' + user.id)
+    if (!memberships.length) throw new RequestError('Match not found.', 404)
+  }
+  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision&cricket_state=not.is.null&id=eq.' + id)
+  if (!match) throw new RequestError('Match not found.', 404)
+  return match
+}
+
+async function matchDetails(match: MatchRow) {
+  const audit = await db<AuditEntry[]>('score_audit?select=id,actor_id,action,details,created_at&order=id.desc&limit=100&match_id=eq.' + match.id)
+  return { ...match, audit }
+}
+
+export async function GET(request: Request) {
+  try {
+    const user = await session()
+    if (!user) return Response.json({ user: null, matches: [], configured: Boolean(
+      process.env.SUPABASE_URL && (process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY)
+      && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY),
+    ) })
+    const params = new URL(request.url).searchParams
+    const id = params.get('match')
+    if (id) return Response.json({ match: await matchDetails(await loadMatch(id, user)), user })
+    if (params.has('users')) {
+      if (!user.admin) throw new RequestError('Admin access required.', 403)
+      const accounts = await rpc<Account[]>('cricket_accounts', { actor: user.id })
+      const profiles = await db<Profile[]>('cricket_profiles?select=user_id,name,nickname')
+      return Response.json({ accounts, profiles })
+    }
+    const [profile] = await db<Profile[]>('cricket_profiles?select=user_id,name,nickname&user_id=eq.' + user.id)
+    const rows = user.admin ? null : await db<{ match_id: string }[]>('match_players?select=match_id&user_id=eq.' + user.id)
+    const matches = rows?.length === 0 ? [] : await db<MatchRow[]>(
+      'matches?select=id,name,status&cricket_state=not.is.null&order=updated_at.desc&limit=100'
+      + (rows ? '&id=in.(' + rows.map(row => row.match_id).join(',') + ')' : ''),
+    )
+    return Response.json({ user, matches, profile: profile ?? null })
+  } catch (error) { return errorResponse(error) }
+}
+
+function createState(raw: Match, suppliedRoster: RosterPlayer[]) {
+  if (!raw || !Array.isArray(suppliedRoster) || !Array.isArray(raw.sides) || raw.sides.length !== 2
+    || !Array.isArray(raw.teamNames) || raw.teamNames.length !== 2
+    || typeof raw.ground?.name !== 'string' || !raw.ground.name.trim() || raw.ground.name.length > 120
+    || typeof raw.ground.id !== 'string' || raw.ground.id.length > 80
+    || !Number.isInteger(raw.overs) || raw.overs! < 1 || raw.overs! > 20
+    || typeof raw.lastMan !== 'boolean') throw new RequestError('Check the match setup.', 400)
+  const validName = (value: unknown) => typeof value === 'string' && value.trim() && value.length <= 80
+  if (!raw.teamNames.every(validName) || raw.teamNames[0].trim().toLowerCase() === raw.teamNames[1].trim().toLowerCase()
+    || !raw.sides.every(side => Array.isArray(side) && side.length >= 2 && side.length <= 30
+      && side.every(validName) && raw.overs! <= side.length + 1))
+    throw new RequestError('Check the team names, players and overs.', 400)
+  const names = raw.sides.flat().map(name => name.trim())
+  if (new Set(names.map(name => name.toLowerCase())).size !== names.length || suppliedRoster.length !== names.length)
+    throw new RequestError('Use a different player for each roster slot.', 400)
+  const roster = raw.sides.flatMap((side, team) => side.map(player => {
+    const entry = suppliedRoster.find(item => item?.team === team && item.player_name === player)
+    if (!entry || typeof entry.user_id !== 'string' || !uuid.test(entry.user_id))
+      throw new RequestError('Link every player to a verified account.', 400)
+    return { user_id: entry.user_id.toLowerCase(), team, player_name: player.trim() }
+  }))
+  if (new Set(roster.map(entry => entry.user_id)).size !== names.length)
+    throw new RequestError('Each match player needs a different account.', 400)
+  const sides: Match['sides'] = [raw.sides[0].map(name => name.trim()), raw.sides[1].map(name => name.trim())]
+  const state: Match = {
+    sides, games: [[], []], innings: 0, startedAt: Date.now(), overs: raw.overs, lastMan: raw.lastMan,
+    designations: [sides[1][0], sides[0][0]],
+    ground: { id: raw.ground.id, name: raw.ground.name.trim() },
+    teamNames: [raw.teamNames[0].trim(), raw.teamNames[1].trim()],
+  }
+  return { state, roster }
+}
+
+export async function POST(request: Request) {
+  try {
+    if (request.headers.get('origin') !== new URL(request.url).origin) throw new RequestError('Use the cricket app.', 403)
+    const user = await session()
+    if (!user) throw new RequestError('Sign in to continue.', 401)
+    const body = await request.json().catch(() => null)
+    if (!body || typeof body.operation !== 'string') throw new RequestError('Invalid request.', 400)
+    if (body.operation === 'createLogin' || body.operation === 'resetLogin' || body.operation === 'disableLogin') {
+      if (!user.admin) throw new RequestError('Admin access required.', 403)
+      if (body.operation !== 'disableLogin' && (typeof body.password !== 'string' || body.password.length < 12
+        || new TextEncoder().encode(body.password).length > 72))
+        throw new RequestError('Use a password of 12–72 bytes.', 400)
+      if (body.operation === 'createLogin') {
+        const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : ''
+        if (!playerUsername.test(username))
+          throw new RequestError('Use 3–40 letters, digits, dots, underscores or hyphens for the user ID.', 400)
+        await authAdmin('', 'POST', {
+          ...loginIdentifier(username), password: body.password, email_confirm: true, app_metadata: { cricket_player: true },
+        })
+      } else {
+        if (typeof body.target !== 'string' || !uuid.test(body.target)) throw new RequestError('Choose a player login.', 400)
+        const accounts = await rpc<Account[]>('cricket_accounts', { actor: user.id })
+        const account = accounts.find(item => item.id === body.target)
+        if (!account || account.admin || account.owner || !account.player_login || account.id === user.id)
+          throw new RequestError('Choose a non-admin player login.', 400)
+        if (body.operation === 'disableLogin' && typeof body.disabled !== 'boolean') throw new RequestError('Invalid login status.', 400)
+        await authAdmin('/' + account.id, 'PUT', body.operation === 'disableLogin'
+          ? { ban_duration: body.disabled ? '876000h' : 'none' } : { password: body.password })
+      }
+      return Response.json({ ok: true })
+    }
+    if (body.operation === 'role') {
+      if (!user.admin || typeof body.target !== 'string' || !uuid.test(body.target) || typeof body.enabled !== 'boolean')
+        throw new RequestError('Admin access and a valid account are required.', 403)
+      await rpc('cricket_set_admin', { actor: user.id, target: body.target, enabled: body.enabled })
+      return Response.json({ ok: true })
+    }
+    if (body.operation === 'profile' || body.operation === 'removeProfile') {
+      const target = body.target ?? user.id
+      if (typeof target !== 'string' || !uuid.test(target) || (!user.admin && target !== user.id)
+        || (body.operation === 'removeProfile' && !user.admin))
+        throw new RequestError('You do not have permission to change this profile.', 403)
+      if (target !== user.id && !(await rpc<Account[]>('cricket_accounts', { actor: user.id })).some(account => account.id === target))
+        throw new RequestError('Choose a verified account.', 400)
+      if (body.operation === 'removeProfile') {
+        await db('cricket_profiles?user_id=eq.' + target, 'DELETE')
+      } else {
+        if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 80
+          || typeof body.nickname !== 'string' || body.nickname.length > 40)
+          throw new RequestError('Enter a name and an optional nickname.', 400)
+        await db('cricket_profiles?on_conflict=user_id', 'POST', {
+          user_id: target, name: body.name.trim(), nickname: body.nickname.trim(), updated_at: new Date().toISOString(),
+        }, 'resolution=merge-duplicates')
+      }
+      return Response.json({ ok: true })
+    }
+    if (body.operation === 'create') {
+      if (!user.admin) throw new RequestError('Only an admin can set up a shared match.', 403)
+      const { state, roster } = createState(body.match, body.roster)
+      const id = await rpc<string>('cricket_create_match', { actor: user.id, title: state.teamNames!.join(' vs '), state, roster })
+      return Response.json({ match: await matchDetails(await loadMatch(id, user)) }, { status: 201 })
+    }
+    if (typeof body.id !== 'string' || !Number.isInteger(body.revision)) throw new RequestError('Invalid match update.', 400)
+    const match = await loadMatch(body.id, user)
+    if (body.revision !== match.revision) throw new RequestError('Someone updated this match. Check the latest score before trying again.', 409)
+    if (body.operation === 'correct' && !user.admin) throw new RequestError('Only an admin can correct a frozen over.', 403)
+    let state: Match
+    try { state = applyOperation(match.cricket_state, body as ScoreOperation, user.admin) }
+    catch (error) { throw new RequestError(error instanceof Error ? error.message : 'Invalid score update.', 400) }
+    const [member] = await db<RosterPlayer[]>('match_players?select=player_name&match_id=eq.' + match.id + '&user_id=eq.' + user.id)
+    const [profile] = await db<Profile[]>('cricket_profiles?select=name&user_id=eq.' + user.id)
+    const event = {
+      operation: body.operation, actorName: member?.player_name || profile?.name || (user.admin ? 'Admin ' : 'Umpire ') + user.id.slice(0, 8),
+      innings: body.operation === 'correct' ? body.innings : match.cricket_state.innings,
+      ...(body.operation === 'correct' ? {
+        delivery: body.index + 1, before: match.cricket_state.games[body.innings as 0 | 1][body.index],
+        after: state.games[body.innings as 0 | 1][body.index],
+      } : body.operation === 'ball' ? { delivery: state.games[state.innings].length, after: state.games[state.innings].at(-1) }
+        : body.operation === 'undo' ? { delivery: match.cricket_state.games[state.innings].length, before: match.cricket_state.games[state.innings].at(-1) } : {}),
+    }
+    await rpc('cricket_save_match', {
+      actor: user.id, match_key: match.id, expected_revision: body.revision, state,
+      match_status: state.stoppedAt ? 'stopped' : state.innings === 1 && replay(rulesFor(state, 1), state.games[1]).complete ? 'complete' : 'live',
+      event, frozen: [0 as const, 1 as const].flatMap(innings => frozenOvers(state, innings)), admin_only: body.operation === 'correct',
+    })
+    return Response.json({ match: await matchDetails(await loadMatch(match.id, user)) })
+  } catch (error) { return errorResponse(error) }
+}

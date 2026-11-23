@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers'
 
-export async function photoUser() {
+export async function signedInUser() {
   const session = (await cookies()).get('cricket-photo-session')?.value
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY
@@ -10,6 +10,10 @@ export async function photoUser() {
   })
   if (!response.ok) return null
   const user = await response.json()
-  return typeof user.id === 'string' ? user.id as string : null
+  return typeof user.id === 'string' ? { id: user.id as string } : null
+}
+
+export async function photoUser() {
+  return (await signedInUser())?.id ?? null
 }
 
