@@ -157,7 +157,8 @@ export async function POST(request: Request) {
     if (!body || typeof body.operation !== 'string') throw new RequestError('Invalid request.', 400)
     if (['createPlayer', 'createLogin', 'resetLogin', 'disableLogin'].includes(body.operation)) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
-      const minLength = body.operation === 'createLogin' && body.role === 'admin'
+      const createsAccount = body.operation === 'createLogin' || body.operation === 'createPlayer'
+      const minLength = createsAccount && body.role === 'admin'
         ? minAdminPasswordLength : minPlayerPasswordLength
       if (body.operation !== 'disableLogin') {
         if (typeof body.password !== 'string' || body.password.length < minLength)
@@ -166,6 +167,9 @@ export async function POST(request: Request) {
           throw new RequestError('The password is too long. Use up to 72 bytes.', 400)
       }
       if (body.operation === 'createPlayer') {
+        const role = body.role === undefined ? 'player' : body.role
+        if (role !== 'player' && role !== 'umpire' && role !== 'admin')
+          throw new RequestError('Choose Player, Player with umpire access, or Admin.', 400)
         const name = typeof body.name === 'string' ? body.name.trim() : ''
         const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
         if (!name || name.length > 80) throw new RequestError('Enter a player name of up to 80 characters.', 400)
@@ -174,13 +178,15 @@ export async function POST(request: Request) {
         const created = await authAdmin('', 'POST', {
           email, password: body.password, email_confirm: true, app_metadata: { cricket_player: true },
         })
+        if (typeof created?.id !== 'string' || !uuid.test(created.id))
+          throw new RequestError('Check Manage users to see whether the login was created before retrying.', 503)
         try {
-          if (typeof created?.id !== 'string' || !uuid.test(created.id)) throw new Error('Missing account ID.')
           await db('cricket_profiles?on_conflict=user_id', 'POST', {
             user_id: created.id, name, nickname: '',
           }, 'resolution=ignore-duplicates')
+          if (role !== 'player') await rpc('cricket_set_role', { actor: user.id, target: created.id, new_role: role })
         } catch {
-          throw new RequestError('The player login was created. The player can sign in by email and enter their name in My profile.', 503)
+          throw new RequestError('The login was created. Check the name and account role in Manage users before retrying.', 503)
         }
       } else if (body.operation === 'createLogin') {
         const role = body.role === undefined ? 'player' : body.role

@@ -8,7 +8,14 @@ fieldset{border:1px solid #52685f;border-radius:12px;padding:16px;margin:20px 0;
 
 .site-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .site-header button[aria-pressed="false"] { background: transparent; color: inherit; }
-.account-settings > details + details, .account-settings > button + details { margin-top: 16px; }
+.user-settings { margin-top: 18px; }
+.settings-nav { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid #344a42; margin-bottom: 16px; }
+.settings-nav button[aria-pressed="false"] { background: transparent; color: #f0f8f4; }
+.settings-grid label { margin-block: 0 10px; }
+.settings-hint { font-size: .9rem; margin: 4px 0 14px; }
+.settings-success { padding: 12px; border-radius: 8px; background: #243c32; color: #c1f4d2; }
+.settings-group { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid #344a42; }
+.settings-group summary { cursor: pointer; font-weight: 650; }
 
 .password-field { margin: 10px 0; }
 .password-field label { margin: 0 0 4px; }

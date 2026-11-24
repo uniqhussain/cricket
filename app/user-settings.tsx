@@ -8,6 +8,12 @@ import PasswordInput from './password-input'
 import { minAdminPasswordLength, minPlayerPasswordLength } from './player-login'
 
 export type SessionUser = { id: string; admin: boolean; role: AccountRole }
+type SettingsView = 'add' | 'manage' | 'profile'
+const roleDescriptions: Record<AccountRole, string> = {
+  player: 'Can view assigned matches and edit their own profile.',
+  umpire: 'Can score assigned matches and edit their own profile.',
+  admin: 'Can manage users, score any shared match, and correct frozen overs.',
+}
 
 export async function sharedRequest<T>(query = '', body?: object): Promise<T> {
   const response = await fetch('/api/shared-scoring' + query, body ? {
@@ -25,53 +31,85 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
   profiles: Profile[]
   reload: () => Promise<void>
 }) {
-  const [selection, setSelection] = useState(user.id)
+  const [view, setView] = useState<SettingsView>(user.admin ? 'add' : 'profile')
+  const [selection, setSelection] = useState('')
+  const [newRole, setNewRole] = useState<AccountRole>('player')
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('')
+  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null)
+  const activeView = user.admin ? view : 'profile'
+  const target = activeView === 'profile' ? user.id : selection
   const account = accounts.find(item => item.id === selection)
-  const selected = selection === user.id ? profile : profiles.find(item => item.user_id === selection)
+  const selected = activeView === 'profile' ? profile : profiles.find(item => item.user_id === selection)
+  const userNames = new Map(profiles.map(item => [item.user_id, item.name]))
+  const passwordMinimum = newRole === 'admin' ? minAdminPasswordLength : minPlayerPasswordLength
 
   async function update(body: object | (() => Promise<object>), reset?: () => void, success = 'Saved.') {
     setBusy(true)
-    setMessage('')
+    setNotice(null)
     try {
       const request = typeof body === 'function' ? await body() : body
-      await sharedRequest('', { ...request, target: selection })
+      await sharedRequest('', { ...request, target })
       reset?.()
-      await reload()
-      setMessage(success)
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not save the changes.') }
+      const refreshed = await reload().then(() => true, () => false)
+      setNotice({ text: refreshed ? success : success + ' Refresh the page to see the latest details.' })
+    } catch (error) {
+      setNotice({ text: error instanceof Error ? error.message : 'Could not save the changes.', error: true })
+    }
     finally { setBusy(false) }
   }
 
-  return <details open>
-    <summary>{user.admin ? 'User settings' : 'My profile'}</summary>
-    <p className="muted">Your account role: {accountRoles[user.role]}</p>
-    {message && <p role="status">{message}</p>}
-    {user.admin && <details>
-      <summary>Add player</summary>
+  return <div className="user-settings">
+    {user.admin && <nav className="settings-nav" aria-label="User settings">
+      {(['add', 'manage', 'profile'] as const).map(tab => <button key={tab} type="button" aria-pressed={activeView === tab}
+        disabled={busy} onClick={() => {
+          if (tab === activeView) return
+          setView(tab)
+          setNotice(null)
+          if (tab === 'manage') void reload().catch(() => {
+            setNotice({ text: 'Could not refresh the user list. Refresh the page to try again.', error: true })
+          })
+        }}>
+        {{ add: 'Add player', manage: 'Manage users', profile: 'My profile' }[tab]}
+      </button>)}
+    </nav>}
+    {notice && <p className={notice.error ? 'error' : 'settings-success'} role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
+    {activeView === 'add' && <>
       <form onSubmit={event => {
         event.preventDefault()
         const form = event.currentTarget
         const fields = new FormData(form)
         void update({
-          operation: 'createPlayer', name: fields.get('name'), email: fields.get('email'), password: fields.get('password'),
-        }, () => form.reset(), 'Player added. They can sign in with their email and password.')
+          operation: 'createPlayer', name: fields.get('name'), email: fields.get('email'),
+          password: fields.get('password'), role: newRole,
+        }, () => { form.reset(); setNewRole('player') }, 'Account created as ' + accountRoles[newRole] + '. They can now sign in by email.')
       }}>
-        <label>Player name<input name="name" required maxLength={80} disabled={busy} /></label>
-        <label>Player email<input name="email" type="email" required maxLength={254} disabled={busy} /></label>
-        <PasswordInput label="Initial password" name="password" required minLength={minPlayerPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
-        <button disabled={busy}>Add player</button>
+        <div className="grid settings-grid">
+          <label>Full name<input name="name" required maxLength={80} disabled={busy} /></label>
+          <label>Email<input name="email" type="email" required maxLength={254} disabled={busy} /></label>
+        </div>
+        <label>Account role<select name="role" value={newRole} disabled={busy} aria-describedby="new-role-help"
+          onChange={event => setNewRole(event.target.value as AccountRole)}>
+          {(['player', 'umpire', 'admin'] as const).map(role => <option key={role} value={role}>{accountRoles[role]}</option>)}
+        </select></label>
+        <p className="muted settings-hint" id="new-role-help">{roleDescriptions[newRole]}</p>
+        <PasswordInput label="Initial password" name="password" required minLength={passwordMinimum} maxLength={72}
+          autoComplete="new-password" disabled={busy} aria-describedby="new-password-help" />
+        <p className="muted settings-hint" id="new-password-help">At least {passwordMinimum} characters.</p>
+        <button disabled={busy}>{busy ? 'Creating account…' : 'Create account'}</button>
       </form>
-    </details>}
-    {user.admin && <label>Choose a verified user
-      <select value={selection} disabled={busy} onChange={event => { setSelection(event.target.value); setMessage('') }}>
-        <option value={user.id}>My profile</option>
-        {accounts.filter(item => item.id !== user.id).map(item =>
-          <option value={item.id} key={item.id}>{item.label} · {accountRoles[item.role]}{item.disabled ? ' · Disabled' : ''}</option>)}
-      </select>
-    </label>}
-    {user.admin && selection !== user.id && account && !account.owner && !account.disabled && <form
+    </>}
+    {activeView === 'manage' && <label>Select a user
+        <select value={selection} disabled={busy} onChange={event => { setSelection(event.target.value); setNotice(null) }}>
+          <option value="">Choose a user</option>
+          {accounts.filter(item => item.id !== user.id).map(item => {
+            const name = userNames.get(item.id)
+            return <option value={item.id} key={item.id}>
+              {name ? name + ' (' + item.label + ')' : item.label} · {accountRoles[item.role]}{item.disabled ? ' · Disabled' : ''}
+            </option>
+          })}
+        </select>
+      </label>}
+    {activeView === 'manage' && account && !account.owner && !account.disabled && <form className="settings-group"
       key={account.id + ':' + account.role}
       onSubmit={event => {
         event.preventDefault()
@@ -83,7 +121,11 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
       </select></label>
       <button disabled={busy}>Save role</button>
     </form>}
-    <form key={selection + JSON.stringify(selected)} onSubmit={event => {
+    {(activeView === 'profile' || (activeView === 'manage' && account)) && <details
+      className="settings-group" key={target} open={activeView === 'profile' || undefined}>
+    <summary>{activeView === 'profile' ? 'Profile details' : 'Edit cricket profile'}</summary>
+    {activeView === 'profile' && <p className="muted">Account role: {accountRoles[user.role]}</p>}
+    <form key={target + JSON.stringify(selected)} onSubmit={event => {
       event.preventDefault()
       const form = new FormData(event.currentTarget)
       void update(async () => {
@@ -104,7 +146,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
       <label>Nickname<input name="nickname" defaultValue={selected?.nickname} maxLength={40} disabled={busy} /></label>
       <fieldset disabled={busy}>
         <legend>Cricket details</legend>
-        <label>Role<select name="role" defaultValue={selected?.details.role ?? ''}>
+        <label>Playing position<select name="role" defaultValue={selected?.details.role ?? ''}>
           <option value="">Choose a role</option>
           {roles.map(role => <option key={role}>{role}</option>)}
         </select></label>
@@ -136,8 +178,9 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
         }}>Remove profile</button>}
       </div>
     </form>
-    {user.admin && <details>
-      <summary>Create admin login</summary>
+    </details>}
+    {activeView === 'add' && <details className="settings-group">
+      <summary>Create admin with a user ID</summary>
       <form onSubmit={event => {
         event.preventDefault()
         const form = event.currentTarget
@@ -154,8 +197,8 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
         <button disabled={busy}>Create login</button>
       </form>
     </details>}
-    {user.admin && account?.player_login && !account.admin && !account.owner && selection !== user.id && <details>
-      <summary>Manage player login</summary>
+    {activeView === 'manage' && account?.player_login && !account.admin && !account.owner && <details className="settings-group">
+      <summary>Password and sign-in access</summary>
       <form onSubmit={event => {
         event.preventDefault()
         const form = event.currentTarget
@@ -168,5 +211,5 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
         {account.disabled ? 'Enable login' : 'Disable login'}
       </button>
     </details>}
-  </details>
+  </div>
 }
