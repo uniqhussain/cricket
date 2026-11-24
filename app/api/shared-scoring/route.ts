@@ -1,5 +1,5 @@
 import { signedInUser } from '../photo-session/auth'
-import { applyOperation, frozenOvers, rulesFor, type Account, type AuditEntry, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
+import { applyOperation, canUmpire, frozenOvers, rulesFor, type Account, type AccountRole, type AuditEntry, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
 import { replay } from '../../scoring'
 import { loginIdentifier, playerUsername } from '../../player-login'
 import { validatePlayerDetails, type PlayerDetails, type Profile } from '../../profile'
@@ -64,7 +64,7 @@ function rpc<T>(name: string, body: object) { return db<T>('rpc/' + name, 'POST'
 async function session() {
   const user = await signedInUser()
   if (!user) return null
-  const identity = await rpc<{ admin: boolean } | null>('cricket_identity', { actor: user.id })
+  const identity = await rpc<{ admin: boolean; role: AccountRole } | null>('cricket_identity', { actor: user.id })
   return identity ? { ...user, ...identity } : null
 }
 
@@ -101,7 +101,7 @@ export async function GET(request: Request) {
     if (id) return Response.json({ match: await matchDetails(await loadMatch(id, user)), user })
     if (params.has('users')) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
-      const accounts = await rpc<Account[]>('cricket_accounts', { actor: user.id })
+      const accounts = await rpc<Account[]>('cricket_accounts_with_roles', { actor: user.id })
       const profiles = await db<Profile[]>('cricket_profiles?select=' + profileFields)
       return Response.json({ accounts, profiles })
     }
@@ -192,7 +192,7 @@ export async function POST(request: Request) {
           try {
             await rpc('cricket_set_admin', { actor: user.id, target: created.id, enabled: true })
           } catch {
-            throw new RequestError('The login was created. Check its role in User settings and use Make admin if needed.', 503)
+            throw new RequestError('The login was created. Check its role in User settings and select Admin if needed.', 503)
           }
         }
       } else {
@@ -208,9 +208,11 @@ export async function POST(request: Request) {
       return Response.json({ ok: true })
     }
     if (body.operation === 'role') {
-      if (!user.admin || typeof body.target !== 'string' || !uuid.test(body.target) || typeof body.enabled !== 'boolean')
+      if (!user.admin || typeof body.target !== 'string' || !uuid.test(body.target))
         throw new RequestError('Admin access and a valid account are required.', 403)
-      await rpc('cricket_set_admin', { actor: user.id, target: body.target, enabled: body.enabled })
+      const role = body.role ?? (typeof body.enabled === 'boolean' ? body.enabled ? 'admin' : 'player' : undefined)
+      if (!['admin', 'umpire', 'player'].includes(role)) throw new RequestError('Choose a valid account role.', 400)
+      await rpc('cricket_set_role', { actor: user.id, target: body.target, new_role: role })
       return Response.json({ ok: true })
     }
     if (body.operation === 'profile' || body.operation === 'removeProfile') {
@@ -258,6 +260,7 @@ export async function POST(request: Request) {
     }
     if (typeof body.id !== 'string' || !Number.isInteger(body.revision)) throw new RequestError('Invalid match update.', 400)
     const match = await loadMatch(body.id, user)
+    if (!canUmpire(user.role)) throw new RequestError('Only admins and match umpires can update scores.', 403)
     if (body.revision !== match.revision) throw new RequestError('Someone updated this match. Check the latest score before trying again.', 409)
     if (body.operation === 'correct' && !user.admin) throw new RequestError('Only an admin can correct a frozen over.', 403)
     let state: Match

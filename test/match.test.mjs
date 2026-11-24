@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOperation, frozenOvers, rulesFor } from '../app/match.ts'
+import { applyOperation, canUmpire, frozenOvers, rulesFor } from '../app/match.ts'
 import { loginIdentifier } from '../app/player-login.ts'
 import { replay } from '../app/scoring.ts'
 
@@ -11,6 +11,13 @@ const match = {
 const dot = { kind: 'legal', batRuns: 0, physicalRuns: 0, bowler: 'C' }
 const wide = { ...dot, kind: 'wide' }
 const play = (state, balls) => balls.reduce((result, ball) => applyOperation(result, { operation: 'ball', ball }, false), state)
+
+test('only admins and designated umpires can score shared matches', () => {
+  assert.equal(canUmpire('admin'), true)
+  assert.equal(canUmpire('umpire'), true)
+  assert.equal(canUmpire('player'), false)
+  assert.equal(canUmpire(), false)
+})
 
 test('the sixth legal ball freezes the over, including preceding extras', () => {
   const open = play(match, [dot, dot, wide, dot, dot, dot])

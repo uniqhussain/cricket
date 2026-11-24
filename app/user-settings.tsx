@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import type { Account } from './match'
+import { accountRoles, type Account, type AccountRole } from './match'
 import { battingHands, bowlingStyles, roles, type Profile } from './profile'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
 
-export type SessionUser = { id: string; admin: boolean }
+export type SessionUser = { id: string; admin: boolean; role: AccountRole }
 
 export async function sharedRequest<T>(query = '', body?: object): Promise<T> {
   const response = await fetch('/api/shared-scoring' + query, body ? {
@@ -44,6 +44,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
 
   return <details open>
     <summary>{user.admin ? 'User settings' : 'My profile'}</summary>
+    <p className="muted">Your account role: {accountRoles[user.role]}</p>
     {message && <p role="status">{message}</p>}
     {user.admin && <details>
       <summary>Add player</summary>
@@ -65,9 +66,21 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
       <select value={selection} disabled={busy} onChange={event => { setSelection(event.target.value); setMessage('') }}>
         <option value={user.id}>My profile</option>
         {accounts.filter(item => item.id !== user.id).map(item =>
-          <option value={item.id} key={item.id}>{item.label}{item.admin ? ' · Admin' : ''}{item.disabled ? ' · Disabled' : ''}</option>)}
+          <option value={item.id} key={item.id}>{item.label} · {accountRoles[item.role]}{item.disabled ? ' · Disabled' : ''}</option>)}
       </select>
     </label>}
+    {user.admin && selection !== user.id && account && !account.owner && !account.disabled && <form
+      key={account.id + ':' + account.role}
+      onSubmit={event => {
+        event.preventDefault()
+        const fields = new FormData(event.currentTarget)
+        void update({ operation: 'role', role: fields.get('role') }, undefined, 'Account role updated.')
+      }}>
+      <label>Account role<select name="role" defaultValue={account.role} disabled={busy}>
+        {Object.entries(accountRoles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select></label>
+      <button disabled={busy}>Save role</button>
+    </form>}
     <form key={selection + JSON.stringify(selected)} onSubmit={event => {
       event.preventDefault()
       const form = new FormData(event.currentTarget)
@@ -119,10 +132,6 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
           if (window.confirm('Remove this cricket profile? The login and past match records will be kept.'))
             void update({ operation: 'removeProfile' })
         }}>Remove profile</button>}
-        {user.admin && selection !== user.id && account && !account.owner && !account.disabled && <button type="button" disabled={busy}
-          onClick={() => void update({ operation: 'role', enabled: !account.admin })}>
-          {account.admin ? 'Remove admin access' : 'Make admin'}
-        </button>}
       </div>
     </form>
     {user.admin && <details>

@@ -13,7 +13,17 @@ export type Match = {
   designations: [string, string]
 }
 
-export type Account = { id: string; label: string; admin: boolean; owner: boolean; player_login: boolean; disabled: boolean }
+export const accountRoles = {
+  admin: 'Admin',
+  umpire: 'Player with umpire access',
+  player: 'Player',
+} as const
+export type AccountRole = keyof typeof accountRoles
+export type Account = { id: string; label: string; admin: boolean; owner: boolean; player_login: boolean; disabled: boolean; role: AccountRole }
+
+export function canUmpire(role?: AccountRole) {
+  return role === 'admin' || role === 'umpire'
+}
 export type RosterPlayer = { user_id: string; player_name: string; team: 0 | 1 }
 export type AuditEntry = {
   id: number

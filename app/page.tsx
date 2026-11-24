@@ -6,7 +6,7 @@ import PhotoSignIn from './photo-sign-in'
 import UserSettings, { sharedRequest, type SessionUser } from './user-settings'
 import type { Profile } from './profile'
 import { replay, type Delivery } from './scoring'
-import { frozenOvers, rulesFor, type Account, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
+import { canUmpire, frozenOvers, rulesFor, type Account, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
 
 const storageKey = 'turf-cricket-match-v1'
 
@@ -26,6 +26,7 @@ export default function Page() {
   const selection = useRef(0)
   const sessionVersion = useRef(0)
   const match = shared?.cricket_state ?? (showLocal ? localMatch : null)
+  const canScore = !shared || canUmpire(user?.role)
   const [ready, setReady] = useState(false)
   const [bowler, setBowler] = useState('')
   const [error, setError] = useState('')
@@ -134,7 +135,7 @@ export default function Page() {
   }
 
   function updateScore(action: ScoreOperation) {
-    if (shared) void sharedWrite({ ...action, id: shared.id, revision: shared.revision })
+    if (shared && canScore) void sharedWrite({ ...action, id: shared.id, revision: shared.revision })
   }
 
   function createMatch(match: Match, roster?: RosterPlayer[]) {
@@ -231,13 +232,14 @@ export default function Page() {
         void refreshSession().catch(report)
       }}>Back to matches</button>
       {shared && <button disabled={busy} onClick={() => void openMatch(shared.id)}>Refresh score</button>}
+      {shared && !canScore && <p className="muted">You can view this score. Only admins and match umpires can update it.</p>}
       <section aria-label="Match timing">
         <h2>Match timer</h2>
         <p className="score" role="timer">{duration}</p>
         {startedAt && <p>Started {new Date(startedAt).toLocaleString()}</p>}
         {stoppedAt && <p>Stopped {new Date(stoppedAt).toLocaleString()}</p>}
-        {!startedAt && <button disabled={busy} onClick={() => shared ? updateScore({ operation: 'timer' }) : save({ ...match, startedAt: Date.now() })}>Start timer</button>}
-        {startedAt && !stoppedAt && <button disabled={busy} onClick={() => {
+        {canScore && !startedAt && <button disabled={busy} onClick={() => shared ? updateScore({ operation: 'timer' }) : save({ ...match, startedAt: Date.now() })}>Start timer</button>}
+        {canScore && startedAt && !stoppedAt && <button disabled={busy} onClick={() => {
           if (!score.complete || match.innings !== 1) {
             if (!window.confirm('Stop this match now? Scoring will end.')) return
           }
@@ -253,7 +255,7 @@ export default function Page() {
         {rules.target !== undefined && <p>Target {rules.target} · {Math.max(0, rules.target - score.runs)} needed from {rules.overs * 6 - score.legal} balls</p>}
         {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? (match.teamNames?.[1] ?? 'Team B') + ' wins' : score.runs === rules.target! - 1 ? 'Match tied' : (match.teamNames?.[0] ?? 'Team A') + ' wins'}</strong>}
       </section>
-      {!score.complete && !stoppedAt && <section><fieldset disabled={busy}>
+      {canScore && !score.complete && !stoppedAt && <section><fieldset disabled={busy}>
         <legend>Record delivery</legend>
         <p><strong>{score.striker}</strong> on strike{score.partner ? ' · ' + score.partner + ' at the other end' : ' · batting alone'}</p>
         <label>Bowler<select value={activeBowler} disabled={!!score.currentBowler} onChange={e => setBowler(e.target.value)}>
@@ -272,7 +274,7 @@ export default function Page() {
           <button disabled={!activeBowler} onClick={() => addBall('no-ball', running)}>No-ball</button>
         </div>
       </fieldset></section>}
-      <section className="actions">
+      {canScore && <section className="actions">
         {!stoppedAt && score.complete && match.innings === 0 && <button disabled={busy} onClick={() => {
           setBowler('')
           if (shared) updateScore({ operation: 'chase' })
@@ -293,7 +295,7 @@ export default function Page() {
           if (!window.confirm('Clear this saved match and set up another?')) return
           try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}
-      </section>
+      </section>}
       <section><h2>Delivery log</h2>
         {deliveries.length ? <ol>{deliveries.map((ball, i) => <li key={i}>{ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? 1 + ball.physicalRuns : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}</li>)}</ol> : <p>No deliveries yet.</p>}
       </section>
