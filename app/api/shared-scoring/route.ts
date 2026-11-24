@@ -78,7 +78,7 @@ async function loadMatch(id: string, user: { id: string; admin: boolean }) {
     const memberships = await db<RosterPlayer[]>('match_players?select=user_id&match_id=eq.' + id + '&user_id=eq.' + user.id)
     if (!memberships.length) throw new RequestError('Match not found.', 404)
   }
-  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision,updated_at&cricket_state=not.is.null&id=eq.' + id)
+  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision,updated_at&cricket_state=not.is.null&archived_at=is.null&id=eq.' + id)
   if (!match) throw new RequestError('Match not found.', 404)
   if (match.status === 'complete' && !match.cricket_state.finishedAt) {
     match.cricket_state = { ...match.cricket_state, finishedAt: Date.parse(match.updated_at) }
@@ -114,7 +114,7 @@ export async function GET(request: Request) {
     const [profile] = await db<Profile[]>('cricket_profiles?select=' + profileFields + '&user_id=eq.' + user.id)
     const rows = user.admin ? null : await db<{ match_id: string }[]>('match_players?select=match_id&user_id=eq.' + user.id)
     const matches = rows?.length === 0 ? [] : await db<MatchRow[]>(
-      'matches?select=id,name,status&cricket_state=not.is.null&order=updated_at.desc&limit=100'
+      'matches?select=id,name,status&cricket_state=not.is.null&archived_at=is.null&order=updated_at.desc&limit=100'
       + (rows ? '&id=in.(' + rows.map(row => row.match_id).join(',') + ')' : ''),
     )
     return Response.json({ user, matches, profile: profile ?? null })
