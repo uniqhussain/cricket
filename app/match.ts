@@ -3,14 +3,31 @@ import { replay, type Delivery, type Rules } from './scoring.ts'
 export type Match = {
   startedAt?: number
   stoppedAt?: number
-  ground?: { id: string; name: string }
+  finishedAt?: number
+  ground?: Ground
   overs?: number
   teamNames?: [string, string]
+  teamNicknames?: [string, string]
   sides: [string[], string[]]
   games: [Delivery[], Delivery[]]
   innings: 0 | 1
   lastMan: boolean
   designations: [string, string]
+}
+export type Ground = { id: string; name: string }
+
+export function teamLabel(match: Match, side: 0 | 1) {
+  return match.teamNicknames?.[side] || match.teamNames?.[side] || (side === 0 ? 'Team A' : 'Team B')
+}
+
+export function elapsedMatchSeconds(match: Match, now: number) {
+  if (!match.startedAt) return 0
+  return Math.max(0, Math.floor(((match.stoppedAt ?? match.finishedAt ?? now) - match.startedAt) / 1000))
+}
+
+export function updateMatchFinish(match: Match, now = Date.now()): Match {
+  const finished = !match.stoppedAt && match.innings === 1 && replay(rulesFor(match, 1), match.games[1]).complete
+  return { ...match, finishedAt: finished ? match.finishedAt ?? now : undefined }
 }
 
 export const accountRoles = {
@@ -110,6 +127,7 @@ export function applyOperation(match: Match, input: ScoreOperation, admin: boole
       if (innings !== 0 || !current.complete) throw new Error('Finish the first innings before starting the chase.')
       return { ...match, innings: 1 as const }
     case 'stop':
+      if (match.finishedAt) throw new Error('The match has already finished.')
       return { ...match, stoppedAt: Date.now() }
     case 'timer':
       if (match.startedAt) throw new Error('The timer has already started.')
@@ -121,5 +139,5 @@ export function applyOperation(match: Match, input: ScoreOperation, admin: boole
   const first = replay(rulesFor(updated, 0), games[0])
   if (innings === 1 && !first.complete) throw new Error('This correction would reopen the first innings after the chase began.')
   if (innings === 1) replay(rulesFor(updated, 1), games[1])
-  return updated
+  return updateMatchFinish(updated)
 }

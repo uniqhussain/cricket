@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { Account, Match, RosterPlayer } from './match'
+import type { Account, Ground, Match, RosterPlayer } from './match'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
-import GroundSettings, { useGrounds } from './ground-settings'
 import { battingHands, bowlingStyles, roles, type PlayerDetails, type Profile } from './profile'
 
 type Player = PlayerDetails & {
@@ -13,10 +12,12 @@ type Player = PlayerDetails & {
 }
 const registryKey = 'turf-cricket-players-v1'
 
-export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
+export default function TeamSetup({ onStart, accounts, profiles = [], grounds, openGroundSettings, busy }: {
   onStart: (match: Match, roster?: RosterPlayer[]) => void
   accounts?: Account[]
   profiles?: Profile[]
+  grounds: Ground[]
+  openGroundSettings: () => void
   busy?: boolean
 }) {
   const [players, setPlayers] = useState<Player[]>([])
@@ -33,12 +34,13 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
   const [uploadedPhoto, setUploadedPhoto] = useState('')
   const [photoInputKey, setPhotoInputKey] = useState(0)
   const [teams, setTeams] = useState<[string, string]>(['', ''])
+  const [nicknames, setNicknames] = useState<[string, string]>(['', ''])
+  const [oversInput, setOversInput] = useState<string | null>(null)
   const [members, setMembers] = useState<[string[], string[]]>([[], []])
   const [selection, setSelection] = useState<[string, string]>(['', ''])
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(false)
-  const [step, setStep] = useState<'players' | 'teams' | 'settings'>(accounts ? 'teams' : 'players')
-  const groundSettings = useGrounds()
+  const [step, setStep] = useState<'players' | 'teams' | 'rosters'>(accounts ? 'teams' : 'players')
   const [groundId, setGroundId] = useState('')
 
   useEffect(() => {
@@ -56,6 +58,8 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
       return { ...profile?.details, id: account.id, name: profile?.name || account.label.slice(0, 80), nickname: profile?.nickname || account.label }
     }) : players
   const playerName = (id: string) => rosterPlayers.find(player => player.id === id)?.name ?? ''
+  const maxOvers = Math.min(20, Math.min(members[0].length, members[1].length) + 1)
+  const ground = grounds.find(item => item.id === groundId)
   const playerCard = (id: string) => {
     const player = rosterPlayers.find(player => player.id === id)
     if (!player) return <span>Unavailable account</span>
@@ -69,13 +73,7 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
   }
 
   return <>
-    <nav className="actions" aria-label="Match setup">
-      {!accounts && <button onClick={() => setStep('players')} aria-pressed={step === 'players'}>Players ({players.length})</button>}
-      <button onClick={() => setStep('teams')} aria-pressed={step === 'teams'}>Assign teams</button>
-      <button onClick={() => setStep('settings')} aria-pressed={step === 'settings'}>Settings</button>
-    </nav>
     {error && <p role="alert" className="error">{error}</p>}
-    {step === 'settings' && <GroundSettings {...groundSettings} />}
     {step === 'players' && <section>
       <h2>Add players</h2>
       <form onSubmit={async event => {
@@ -164,23 +162,61 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
     </section>}
     {step === 'teams' && <section><form onSubmit={event => {
       event.preventDefault()
-      const teamNames: [string, string] = [teams[0].trim(), teams[1].trim()]
-      if (!teamNames.every(Boolean) || teamNames[0].toLowerCase() === teamNames[1].toLowerCase()) {
+      const [first, second] = teams.map(name => name.trim().toLowerCase())
+      if (!first || !second || first === second) {
         setError('Enter a different name for each team.')
         return
       }
+      if ((nicknames[0].trim().toLowerCase() || first) === (nicknames[1].trim().toLowerCase() || second)) {
+        setError('Use a different display name for each team.')
+        return
+      }
+      if (accounts && !ground) {
+        setError('Choose a saved ground.')
+        return
+      }
+      setError('')
+      setStep('rosters')
+    }}>
+      <h2>Ground and team names</h2>
+      <label>Match ground<select required={Boolean(accounts)} value={groundId} onChange={event => setGroundId(event.target.value)}>
+        <option value="">{accounts ? 'Select ground' : 'No ground selected'}</option>
+        {grounds.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select></label>
+      {accounts && grounds.length === 0 && <button type="button" onClick={openGroundSettings}>Add a ground in Settings</button>}
+      {([0, 1] as const).map(index => <fieldset key={index}>
+        <legend>Team {index === 0 ? 'A' : 'B'}</legend>
+        <label>Team name<input required maxLength={80} value={teams[index]} onChange={event => {
+          const updated: [string, string] = [...teams]
+          updated[index] = event.target.value
+          setTeams(updated)
+        }} /></label>
+        <label>Nickname (optional)<input maxLength={40} value={nicknames[index]} onChange={event => {
+          const updated: [string, string] = [...nicknames]
+          updated[index] = event.target.value
+          setNicknames(updated)
+        }} /></label>
+      </fieldset>)}
+      <div className="actions">
+        {!accounts && <button type="button" onClick={() => setStep('players')}>Back to players</button>}
+        <button disabled={Boolean(accounts && !grounds.length)}>Continue to players</button>
+      </div>
+    </form></section>}
+    {step === 'rosters' && <section><form onSubmit={event => {
+      event.preventDefault()
+      if (busy) return
       if (members.some(team => team.length < 2)) {
         setError('Assign at least two players to each team.')
         return
       }
       const form = new FormData(event.currentTarget)
-      const ground = groundSettings.grounds.find(ground => ground.id === groundId)
-      if (!ground) {
-        setError('Add a ground in Settings and select it for this match.')
+      if (accounts && !ground) {
+        setError('Choose a saved ground before starting.')
+        setStep('teams')
         return
       }
       const overs = Number(form.get('overs'))
-      if (overs > Math.min(members[0].length, members[1].length) + 1) {
+      if (overs > maxOvers) {
         setError('With these bowling quotas, choose fewer overs or add more players.')
         return
       }
@@ -192,23 +228,18 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
         setError('Remove unavailable accounts before starting the match.')
         return
       }
-      onStart({ startedAt: Date.now(), ground: { ...ground }, teamNames, sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0 }, roster)
+      onStart({
+        startedAt: Date.now(), ground, teamNames: [teams[0].trim(), teams[1].trim()],
+        teamNicknames: [nicknames[0].trim(), nicknames[1].trim()],
+        sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0,
+      }, roster)
     }}>
       <h2>Assign players to teams</h2>
-      <label>Match ground<select required value={groundId} onChange={event => setGroundId(event.target.value)}>
-        <option value="">Select ground</option>
-        {groundSettings.grounds.map(ground => <option key={ground.id} value={ground.id}>{ground.name}</option>)}
-      </select></label>
-      {!groundSettings.grounds.length && <button type="button" onClick={() => setStep('settings')}>Add ground in Settings</button>}
+      {ground && <p className="muted">{ground.name}</p>}
       <p>Members bat in the order added. The first member can bowl two overs, and each other member one.</p>
-      {accounts && <p>Choose player accounts from User settings. Every selected player can score this match.</p>}
+      {accounts && <p>Choose registered players. Admins and assigned players with umpire access can score.</p>}
       {([0, 1] as const).map(index => <fieldset key={index}>
-        <legend>Team {index === 0 ? 'A' : 'B'}</legend>
-        <label>Team name<input required maxLength={80} value={teams[index]} onChange={e => {
-          const updated: [string, string] = [...teams]
-          updated[index] = e.target.value
-          setTeams(updated)
-        }} /></label>
+        <legend>Team {index === 0 ? 'A' : 'B'} · {nicknames[index].trim() || teams[index].trim()}</legend>
         <ol>{members[index].map(id => <li key={id}>{playerCard(id)} <button type="button" aria-label={'Remove ' + playerName(id) + ' from team'} onClick={() => {
           const updated: [string[], string[]] = [...members]
           updated[index] = members[index].filter(member => member !== id)
@@ -233,9 +264,13 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
         }}>Add to team</button>
         <p>{members[index].length} members assigned</p>
       </fieldset>)}
-      <label>Overs per innings<input name="overs" type="number" defaultValue={5} min={1} max={20} required /></label>
+      <label>Overs per innings<input name="overs" type="number" value={oversInput ?? Math.min(5, maxOvers)}
+        onChange={event => setOversInput(event.target.value)} min={1} max={maxOvers} required /></label>
       <label><input style={{ width: 'auto', minHeight: 0 }} type="checkbox" name="lastMan" defaultChecked /> Last batter may continue alone</label>
-      <button disabled={busy}>Start match</button>
+      <div className="actions">
+        <button type="button" disabled={busy} onClick={() => { setError(''); setStep('teams') }}>Back to teams</button>
+        <button disabled={busy || members.some(team => team.length < 2)}>{busy ? 'Starting match…' : 'Start match'}</button>
+      </div>
     </form></section>}
   </>
 }

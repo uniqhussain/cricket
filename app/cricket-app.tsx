@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
+import GroundSettings from './ground-settings'
 import PhotoSignIn from './photo-sign-in'
 import UserSettings, { SharedRequestError, sharedRequest, type SessionUser } from './user-settings'
 import type { Profile } from './profile'
 import { replay, type Delivery } from './scoring'
-import { canUmpire, frozenOvers, rulesFor, type Account, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
+import { canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, updateMatchFinish, type Account, type Ground, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
 
 const storageKey = 'turf-cricket-match-v1'
 
@@ -18,6 +19,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const [matches, setMatches] = useState<{ id: string; name: string; status: string }[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [grounds, setGrounds] = useState<Ground[]>([])
   const [view, setView] = useState<'home' | 'settings'>('home')
   const [setup, setSetup] = useState<'shared' | 'local' | null>(null)
   const [showLocal, setShowLocal] = useState(false)
@@ -34,13 +36,14 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const [now, setNow] = useState(() => Date.now())
   const startedAt = match?.startedAt
   const stoppedAt = match?.stoppedAt
+  const finishedAt = match?.finishedAt
 
   useEffect(() => {
-    if (!startedAt || stoppedAt) return
+    if (!startedAt || stoppedAt || finishedAt) return
     setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 250)
     return () => window.clearInterval(timer)
-  }, [startedAt, stoppedAt])
+  }, [startedAt, stoppedAt, finishedAt])
 
   useEffect(() => {
     if (loginRequired) {
@@ -74,6 +77,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     setMatches([])
     setAccounts([])
     setProfiles([])
+    setGrounds([])
     setShared(null)
     setSetup(previous => previous === 'shared' ? null : previous)
     if (loginRequired) setView('home')
@@ -97,11 +101,12 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     setMatches(data.matches)
     try {
       const directory = data.user.admin
-        ? await sharedRequest<{ accounts: Account[]; profiles: Profile[] }>('?users')
-        : { accounts: [], profiles: [] }
+        ? await sharedRequest<{ accounts: Account[]; profiles: Profile[]; grounds: Ground[] }>('?users')
+        : { accounts: [], profiles: [], grounds: [] }
       if (version !== sessionVersion.current) return
       setAccounts(directory.accounts)
       setProfiles(directory.profiles)
+      setGrounds(directory.grounds)
     } catch (error) {
       if (version !== sessionVersion.current) return
       report(error)
@@ -180,12 +185,19 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
 
   function save(updated: Match) {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(updated))
-      setLocalMatch(updated)
+      const timed = updateMatchFinish(updated)
+      localStorage.setItem(storageKey, JSON.stringify(timed))
+      setLocalMatch(timed)
       setError('')
     } catch {
       setError('This browser could not save the match.')
     }
+  }
+
+  async function addGround(name: string) {
+    const { ground } = await sharedRequest<{ ground: Ground }>('', { operation: 'addGround', name })
+    setGrounds(previous => [...previous.filter(item => item.id !== ground.id), ground]
+      .sort((first, second) => first.name.localeCompare(second.name)))
   }
 
   const rules = match && rulesFor(match, match.innings)
@@ -213,7 +225,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     }
   }
 
-  const seconds = startedAt ? Math.max(0, Math.floor(((stoppedAt ?? now) - startedAt) / 1000)) : 0
+  const seconds = match ? elapsedMatchSeconds(match, now) : 0
   const duration = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
     .map(value => String(value).padStart(2, '0')).join(':')
 
@@ -242,6 +254,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         {!user && <p className="muted">Sign in with an admin account to create new user logins.</p>}
         {user && <UserSettings key={user.id} {...{ user, profile, accounts, profiles }} reload={async () => { await refreshSession() }} />}
       </section>
+      {user?.admin && <GroundSettings grounds={grounds} addGround={addGround} />}
     </>}
     <div hidden={view !== 'home'}>
     <h1>{match ? 'Match scorer' : 'Matches'}</h1>
@@ -259,7 +272,8 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
             : <button disabled={busy} onClick={() => setSetup('local')}>Set up local match</button>)}
         </div>
       </section>
-      {setup && <TeamSetup key={setup} onStart={createMatch} accounts={setup === 'shared' ? accounts : undefined} profiles={profiles} busy={busy} />}
+      {setup && <TeamSetup key={setup} onStart={createMatch} accounts={setup === 'shared' ? accounts : undefined}
+        profiles={profiles} grounds={grounds} openGroundSettings={() => setView('settings')} busy={busy} />}
     </>}
     {match && score && rules && deliveries && <>
       <button disabled={busy} onClick={() => {
@@ -276,8 +290,9 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         <p className="score" role="timer">{duration}</p>
         {startedAt && <p>Started {new Date(startedAt).toLocaleString()}</p>}
         {stoppedAt && <p>Stopped {new Date(stoppedAt).toLocaleString()}</p>}
+        {finishedAt && <p>Finished {new Date(finishedAt).toLocaleString()}</p>}
         {canScore && !startedAt && <button disabled={busy} onClick={() => shared ? updateScore({ operation: 'timer' }) : save({ ...match, startedAt: Date.now() })}>Start timer</button>}
-        {canScore && startedAt && !stoppedAt && <button disabled={busy} onClick={() => {
+        {canScore && startedAt && !stoppedAt && !finishedAt && <button disabled={busy} onClick={() => {
           if (!score.complete || match.innings !== 1) {
             if (!window.confirm('Stop this match now? Scoring will end.')) return
           }
@@ -287,11 +302,11 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       </section>
       <section aria-live="polite">
         {match.ground && <p className="muted">{match.ground.name}</p>}
-        <div>{match.teamNames?.[match.innings] ?? ('Team ' + (match.innings === 0 ? 'A' : 'B'))} batting</div>
+        <div>{teamLabel(match, match.innings)} batting</div>
         <p className="score">{score.runs}/{score.wickets}</p>
         <p>{score.overs} / {rules.overs} overs · {score.extras} extras</p>
         {rules.target !== undefined && <p>Target {rules.target} · {Math.max(0, rules.target - score.runs)} needed from {rules.overs * 6 - score.legal} balls</p>}
-        {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? (match.teamNames?.[1] ?? 'Team B') + ' wins' : score.runs === rules.target! - 1 ? 'Match tied' : (match.teamNames?.[0] ?? 'Team A') + ' wins'}</strong>}
+        {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? teamLabel(match, 1) + ' wins' : score.runs === rules.target! - 1 ? 'Match tied' : teamLabel(match, 0) + ' wins'}</strong>}
       </section>
       {canScore && !score.complete && !stoppedAt && <section><fieldset disabled={busy}>
         <legend>Record delivery</legend>
@@ -329,7 +344,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           games[match.innings] = deliveries.slice(0, -1)
           save({ ...match, games })
         }}>{!shared && !deliveries.length && match.innings === 1 ? 'Back to first innings' : 'Undo last delivery'}</button>
-        {!shared && (stoppedAt || (!startedAt && score.complete && match.innings === 1)) && <button onClick={() => {
+        {!shared && (stoppedAt || (score.complete && match.innings === 1)) && <button onClick={() => {
           if (!window.confirm('Clear this saved match and set up another?')) return
           try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}

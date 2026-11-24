@@ -1,11 +1,10 @@
 import { signedInUser } from '../photo-session/auth'
-import { applyOperation, canUmpire, frozenOvers, rulesFor, type Account, type AccountRole, type AuditEntry, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
-import { replay } from '../../scoring'
+import { applyOperation, canUmpire, frozenOvers, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
 import { loginIdentifier, minAdminPasswordLength, minPlayerPasswordLength, playerUsername } from '../../player-login'
 import { validatePlayerDetails, type PlayerDetails, type Profile } from '../../profile'
 import { ownsPhotoLink } from '../player-photos/photo-link'
 
-type MatchRow = { id: string; name: string; status: string; cricket_state: Match; revision: number }
+type MatchRow = { id: string; name: string; status: string; cricket_state: Match; revision: number; updated_at: string }
 const profileFields = 'user_id,name,nickname,details'
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
@@ -79,8 +78,11 @@ async function loadMatch(id: string, user: { id: string; admin: boolean }) {
     const memberships = await db<RosterPlayer[]>('match_players?select=user_id&match_id=eq.' + id + '&user_id=eq.' + user.id)
     if (!memberships.length) throw new RequestError('Match not found.', 404)
   }
-  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision&cricket_state=not.is.null&id=eq.' + id)
+  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision,updated_at&cricket_state=not.is.null&id=eq.' + id)
   if (!match) throw new RequestError('Match not found.', 404)
+  if (match.status === 'complete' && !match.cricket_state.finishedAt) {
+    match.cricket_state = { ...match.cricket_state, finishedAt: Date.parse(match.updated_at) }
+  }
   return match
 }
 
@@ -102,9 +104,12 @@ export async function GET(request: Request) {
     if (id) return Response.json({ match: await matchDetails(await loadMatch(id, user)), user })
     if (params.has('users')) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
-      const accounts = await rpc<Account[]>('cricket_accounts_with_roles', { actor: user.id })
-      const profiles = await db<Profile[]>('cricket_profiles?select=' + profileFields)
-      return Response.json({ accounts, profiles })
+      const [accounts, profiles, grounds] = await Promise.all([
+        rpc<Account[]>('cricket_accounts_with_roles', { actor: user.id }),
+        db<Profile[]>('cricket_profiles?select=' + profileFields),
+        db<Ground[]>('cricket_grounds?select=id,name&order=name.asc'),
+      ])
+      return Response.json({ accounts, profiles, grounds })
     }
     const [profile] = await db<Profile[]>('cricket_profiles?select=' + profileFields + '&user_id=eq.' + user.id)
     const rows = user.admin ? null : await db<{ match_id: string }[]>('match_players?select=match_id&user_id=eq.' + user.id)
@@ -116,14 +121,15 @@ export async function GET(request: Request) {
   } catch (error) { return errorResponse(error) }
 }
 
-function createState(raw: Match, suppliedRoster: RosterPlayer[]) {
+function createState(raw: Match, suppliedRoster: RosterPlayer[], ground: Ground) {
   if (!raw || !Array.isArray(suppliedRoster) || !Array.isArray(raw.sides) || raw.sides.length !== 2
     || !Array.isArray(raw.teamNames) || raw.teamNames.length !== 2
-    || typeof raw.ground?.name !== 'string' || !raw.ground.name.trim() || raw.ground.name.length > 120
-    || typeof raw.ground.id !== 'string' || raw.ground.id.length > 80
     || !Number.isInteger(raw.overs) || raw.overs! < 1 || raw.overs! > 20
     || typeof raw.lastMan !== 'boolean') throw new RequestError('Check the match setup.', 400)
   const validName = (value: unknown) => typeof value === 'string' && value.trim() && value.length <= 80
+  if (raw.teamNicknames !== undefined && (!Array.isArray(raw.teamNicknames) || raw.teamNicknames.length !== 2
+    || !raw.teamNicknames.every(name => typeof name === 'string' && name.length <= 40)))
+    throw new RequestError('Team nicknames can be up to 40 characters.', 400)
   if (!raw.teamNames.every(validName) || raw.teamNames[0].trim().toLowerCase() === raw.teamNames[1].trim().toLowerCase()
     || !raw.sides.every(side => Array.isArray(side) && side.length >= 2 && side.length <= 30
       && side.every(validName) && raw.overs! <= side.length + 1))
@@ -143,9 +149,12 @@ function createState(raw: Match, suppliedRoster: RosterPlayer[]) {
   const state: Match = {
     sides, games: [[], []], innings: 0, startedAt: Date.now(), overs: raw.overs, lastMan: raw.lastMan,
     designations: [sides[1][0], sides[0][0]],
-    ground: { id: raw.ground.id, name: raw.ground.name.trim() },
+    ground,
     teamNames: [raw.teamNames[0].trim(), raw.teamNames[1].trim()],
+    teamNicknames: raw.teamNicknames && [raw.teamNicknames[0].trim(), raw.teamNicknames[1].trim()],
   }
+  if (teamLabel(state, 0).toLowerCase() === teamLabel(state, 1).toLowerCase())
+    throw new RequestError('Use a different display name for each team.', 400)
   return { state, roster }
 }
 
@@ -156,6 +165,13 @@ export async function POST(request: Request) {
     if (!user) throw new RequestError('Sign in to continue.', 401)
     const body = await request.json().catch(() => null)
     if (!body || typeof body.operation !== 'string') throw new RequestError('Invalid request.', 400)
+    if (body.operation === 'addGround') {
+      if (!user.admin) throw new RequestError('Only admins can add grounds.', 403)
+      if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 120)
+        throw new RequestError('Enter a ground name of up to 120 characters.', 400)
+      const ground = await rpc<Ground>('cricket_add_ground', { actor: user.id, ground_name: body.name.trim() })
+      return Response.json({ ground }, { status: 201 })
+    }
     if (['createPlayer', 'createLogin', 'resetLogin', 'disableLogin'].includes(body.operation)) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
       const createsAccount = body.operation === 'createLogin' || body.operation === 'createPlayer'
@@ -266,8 +282,12 @@ export async function POST(request: Request) {
     }
     if (body.operation === 'create') {
       if (!user.admin) throw new RequestError('Only an admin can set up a shared match.', 403)
-      const { state, roster } = createState(body.match, body.roster)
-      const id = await rpc<string>('cricket_create_match', { actor: user.id, title: state.teamNames!.join(' vs '), state, roster })
+      const groundId = body.match?.ground?.id
+      if (typeof groundId !== 'string' || !uuid.test(groundId)) throw new RequestError('Choose a saved ground.', 400)
+      const [ground] = await db<Ground[]>('cricket_grounds?select=id,name&id=eq.' + groundId)
+      if (!ground) throw new RequestError('Choose a saved ground from Settings.', 400)
+      const { state, roster } = createState(body.match, body.roster, ground)
+      const id = await rpc<string>('cricket_create_match', { actor: user.id, title: teamLabel(state, 0) + ' vs ' + teamLabel(state, 1), state, roster })
       return Response.json({ match: await matchDetails(await loadMatch(id, user)) }, { status: 201 })
     }
     if (typeof body.id !== 'string' || !Number.isInteger(body.revision)) throw new RequestError('Invalid match update.', 400)
@@ -291,7 +311,7 @@ export async function POST(request: Request) {
     }
     await rpc('cricket_save_match', {
       actor: user.id, match_key: match.id, expected_revision: body.revision, state,
-      match_status: state.stoppedAt ? 'stopped' : state.innings === 1 && replay(rulesFor(state, 1), state.games[1]).complete ? 'complete' : 'live',
+      match_status: state.stoppedAt ? 'stopped' : state.finishedAt ? 'complete' : 'live',
       event, frozen: [0 as const, 1 as const].flatMap(innings => frozenOvers(state, innings)), admin_only: body.operation === 'correct',
     })
     return Response.json({ match: await matchDetails(await loadMatch(match.id, user)) })

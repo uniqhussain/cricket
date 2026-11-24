@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOperation, canUmpire, frozenOvers, rulesFor } from '../app/match.ts'
+import { applyOperation, canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, updateMatchFinish } from '../app/match.ts'
 import { loginIdentifier } from '../app/player-login.ts'
 import { replay } from '../app/scoring.ts'
 
@@ -11,6 +11,27 @@ const match = {
 const dot = { kind: 'legal', batRuns: 0, physicalRuns: 0, bowler: 'C' }
 const wide = { ...dot, kind: 'wide' }
 const play = (state, balls) => balls.reduce((result, ball) => applyOperation(result, { operation: 'ball', ball }, false), state)
+
+test('the clock freezes when the chase ends and resumes if undo reopens it', () => {
+  const firstInnings = play({ ...match, overs: 1, startedAt: 1000 }, Array(6).fill(dot))
+  assert.equal(firstInnings.finishedAt, undefined)
+  const chase = applyOperation(firstInnings, { operation: 'chase' }, true)
+  const won = applyOperation(chase, { operation: 'ball', ball: { ...dot, bowler: 'A', batRuns: 1, physicalRuns: 1 } }, true)
+  assert.ok(won.finishedAt)
+  const finished = updateMatchFinish({ ...won, finishedAt: undefined }, 6500)
+  assert.equal(elapsedMatchSeconds(finished, 20000), 5)
+  assert.equal(updateMatchFinish(finished, 30000).finishedAt, 6500)
+  const reopened = applyOperation(finished, { operation: 'undo' }, true)
+  assert.equal(reopened.finishedAt, undefined)
+  assert.equal(elapsedMatchSeconds(reopened, 20000), 19)
+  assert.equal(elapsedMatchSeconds({ ...reopened, stoppedAt: 4500 }, 20000), 3)
+})
+
+test('a team nickname takes precedence over its full name', () => {
+  const named = { ...match, teamNames: ['Westfield Cricket', 'Eastfield Cricket'], teamNicknames: ['West', ''] }
+  assert.equal(teamLabel(named, 0), 'West')
+  assert.equal(teamLabel(named, 1), 'Eastfield Cricket')
+})
 
 test('only admins and designated umpires can score shared matches', () => {
   assert.equal(canUmpire('admin'), true)
