@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
 import GroundSettings from './ground-settings'
+import MatchScorecard from './match-scorecard'
 import PhotoSignIn from './photo-sign-in'
 import UserSettings, { SharedRequestError, sharedRequest, type SessionUser } from './user-settings'
 import type { Profile } from './profile'
@@ -349,6 +350,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}
       </section>}
+      <MatchScorecard key={shared?.id ?? startedAt} match={match} />
       <section><h2>Delivery log</h2>
         {deliveries.length ? <ol>{deliveries.map((ball, i) => <li key={i}>{ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? 1 + ball.physicalRuns : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}</li>)}</ol> : <p>No deliveries yet.</p>}
       </section>

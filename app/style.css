@@ -38,6 +38,15 @@ fieldset{border:1px solid #52685f;border-radius:12px;padding:16px;margin:20px 0;
 
 main { overflow-wrap: anywhere; }
 .sign-in-screen { max-width: 480px; }
+.scorecard-title { cursor: pointer; font-size: 1.2rem; font-weight: 750; }
+.scorecard-innings + .scorecard-innings { border-top: 1px solid #344a42; margin-top: 22px; padding-top: 4px; }
+.scorecard-table { max-width: 100%; overflow-x: auto; margin-bottom: 14px; }
+.scorecard-table:focus-visible { outline: 2px solid #a3efbe; outline-offset: 2px; }
+.scorecard-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.scorecard-table caption { text-align: start; font-weight: 700; padding: 8px 4px; }
+.scorecard-table th, .scorecard-table td { padding: 8px 5px; border-bottom: 1px solid #344a42; text-align: end; }
+.scorecard-table th:first-child { text-align: start; min-width: 76px; }
+.scorecard-table th small { display: block; color: #b0c5ba; font-weight: 400; }
 button, input, select { max-width: 100%; min-width: 0; }
 .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 480px) {

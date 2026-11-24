@@ -16,6 +16,30 @@ export type Rules = {
   target?: number
 }
 
+export function formatOvers(balls: number) {
+  return Math.floor(balls / 6) + '.' + balls % 6
+}
+
+type BattingFigures = {
+  name: string
+  batted: boolean
+  runs: number
+  balls: number
+  fours: number
+  sixes: number
+  dismissedBy?: string
+}
+
+type BowlingFigures = {
+  name: string
+  balls: number
+  maidens: number
+  runs: number
+  wickets: number
+  wides: number
+  noBalls: number
+}
+
 export function replay(rules: Rules, deliveries: Delivery[]) {
   let runs = 0
   let legal = 0
@@ -26,7 +50,12 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   let next = 2
   let currentBowler: string | undefined
   let previousBowler: string | undefined
+  let overRuns = 0
   const quota: Record<string, number> = Object.create(null)
+  const batting = new Map<string, BattingFigures>(rules.batters.map(name => [
+    name, { name, batted: false, runs: 0, balls: 0, fours: 0, sixes: 0 },
+  ]))
+  const bowling = new Map<string, BowlingFigures>()
   const complete = () => legal >= rules.overs * 6
     || wickets >= rules.batters.length - (rules.lastMan ? 0 : 1)
     || (rules.target !== undefined && runs >= rules.target)
@@ -50,10 +79,30 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     currentBowler = ball.bowler
     const extra = ball.kind === 'wide' ? 1 + ball.physicalRuns : 0
     extras += extra
-    runs += ball.batRuns + extra
+    const deliveryRuns = ball.batRuns + extra
+    runs += deliveryRuns
+    overRuns += deliveryRuns
+    const batter = batting.get(striker)!
+    batter.batted = true
+    if (partner) batting.get(partner)!.batted = true
+    batter.runs += ball.batRuns
+    if (ball.kind === 'legal') batter.balls++
+    if (ball.boundary === 4) batter.fours++
+    if (ball.boundary === 6) batter.sixes++
+
+    const bowler = bowling.get(ball.bowler) ?? {
+      name: ball.bowler, balls: 0, maidens: 0, runs: 0, wickets: 0, wides: 0, noBalls: 0,
+    }
+    bowling.set(ball.bowler, bowler)
+    bowler.runs += deliveryRuns
+    if (ball.kind === 'wide') bowler.wides++
+    if (ball.kind === 'no-ball') bowler.noBalls++
+
     if (partner && ball.physicalRuns % 2) [striker, partner] = [partner, striker]
     if (ball.dismissed) {
       wickets++
+      bowler.wickets++
+      batting.get(ball.dismissed)!.dismissedBy = ball.bowler
       const replacement: string | undefined = rules.batters[next++]
       if (ball.dismissed === striker) {
         striker = replacement ?? partner ?? ''
@@ -64,14 +113,24 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     }
     if (ball.kind === 'legal') {
       legal++
+      bowler.balls++
       quota[ball.bowler] = (quota[ball.bowler] ?? 0) + 1
       if (legal % 6 === 0) {
+        if (overRuns === 0) bowler.maidens++
+        overRuns = 0
         if (partner) [striker, partner] = [partner, striker]
         previousBowler = currentBowler
         currentBowler = undefined
       }
     }
   }
-  return { runs, wickets, extras, legal, striker, partner, currentBowler, previousBowler, quota, complete: complete(), overs: Math.floor(legal / 6) + '.' + legal % 6 }
+  if (deliveries.length && !complete()) {
+    if (striker) batting.get(striker)!.batted = true
+    if (partner) batting.get(partner)!.batted = true
+  }
+  return {
+    runs, wickets, extras, legal, striker, partner, currentBowler, previousBowler, quota,
+    complete: complete(), overs: formatOvers(legal), batting: [...batting.values()], bowling: [...bowling.values()],
+  }
 }
 

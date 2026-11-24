@@ -28,3 +28,35 @@ test('a chase finishes as soon as the target is met', () => {
   const score = replay({ ...rules, target: 2 }, [ball('no-ball', 2)])
   assert.deepEqual([score.runs, score.legal, score.complete], [2, 0, true])
 })
+
+test('scorecard follows strike changes, extras, boundaries and wickets', () => {
+  const score = replay(rules, [
+    { ...ball('legal', 4, 0), boundary: 4 },
+    ball('wide', 0, 1),
+    { ...ball('no-ball', 6, 0), boundary: 6 },
+    { ...ball('legal', 1), dismissed: 'A' },
+    ball(),
+  ])
+  assert.deepEqual(score.batting.map(({ name, runs, balls, fours, sixes, dismissedBy }) =>
+    [name, runs, balls, fours, sixes, dismissedBy]), [
+    ['A', 4, 1, 1, 0, 'E'],
+    ['B', 7, 1, 0, 1, undefined],
+    ['C', 0, 1, 0, 0, undefined],
+    ['D', 0, 0, 0, 0, undefined],
+  ])
+  assert.equal(score.batting[3].batted, false)
+  assert.deepEqual(score.bowling, [{ name: 'E', balls: 3, maidens: 0, runs: 13, wickets: 1, wides: 1, noBalls: 1 }])
+  assert.equal(score.batting.reduce((sum, player) => sum + player.runs, score.extras), score.runs)
+})
+
+test('maidens count only for completed overs with no runs', () => {
+  const score = replay(rules, [
+    ...Array.from({ length: 6 }, () => ball()),
+    ball('wide', 0, 0, 'F'),
+    ...Array.from({ length: 6 }, () => ball('legal', 0, 0, 'F')),
+    ball(),
+  ])
+  assert.deepEqual(score.bowling.map(({ name, balls, maidens, runs }) => [name, balls, maidens, runs]), [
+    ['E', 7, 1, 0], ['F', 6, 0, 1],
+  ])
+})
