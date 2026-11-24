@@ -11,13 +11,22 @@ export type Rules = {
   overs: number
   batters: string[]
   bowlers: string[]
-  designated: string
   lastMan: boolean
   target?: number
 }
 
 export function formatOvers(balls: number) {
   return Math.floor(balls / 6) + '.' + balls % 6
+}
+
+function hasBowlingQuota(name: string, quota: Record<string, number>, repeatBowler?: string) {
+  const balls = quota[name] ?? 0
+  return balls < 6 || (balls < 12 && (repeatBowler === undefined || repeatBowler === name))
+}
+
+export function eligibleBowlers(rules: Rules, score: ReturnType<typeof replay>) {
+  return rules.bowlers.filter(name => name !== score.striker && name !== score.partner
+    && name !== score.previousBowler && hasBowlingQuota(name, score.quota, score.repeatBowler))
 }
 
 type BattingFigures = {
@@ -50,6 +59,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   let next = 2
   let currentBowler: string | undefined
   let previousBowler: string | undefined
+  let repeatBowler: string | undefined
   let overRuns = 0
   const quota: Record<string, number> = Object.create(null)
   const batting = new Map<string, BattingFigures>(rules.batters.map(name => [
@@ -66,7 +76,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
       throw new Error('Choose an eligible bowler.')
     if (currentBowler && ball.bowler !== currentBowler) throw new Error('Finish the current over first.')
     if (!currentBowler && ball.bowler === previousBowler) throw new Error('Choose a different bowler for this over.')
-    if ((quota[ball.bowler] ?? 0) >= (ball.bowler === rules.designated ? 12 : 6))
+    if (!hasBowlingQuota(ball.bowler, quota, repeatBowler))
       throw new Error('This bowler has reached their quota.')
     if (![ball.batRuns, ball.physicalRuns].every(n => Number.isSafeInteger(n) && n >= 0))
       throw new Error('Enter valid runs.')
@@ -115,6 +125,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
       legal++
       bowler.balls++
       quota[ball.bowler] = (quota[ball.bowler] ?? 0) + 1
+      if (quota[ball.bowler] === 7) repeatBowler = ball.bowler
       if (legal % 6 === 0) {
         if (overRuns === 0) bowler.maidens++
         overRuns = 0
@@ -129,7 +140,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     if (partner) batting.get(partner)!.batted = true
   }
   return {
-    runs, wickets, extras, legal, striker, partner, currentBowler, previousBowler, quota,
+    runs, wickets, extras, legal, striker, partner, currentBowler, previousBowler, quota, repeatBowler,
     complete: complete(), overs: formatOvers(legal), batting: [...batting.values()], bowling: [...bowling.values()],
   }
 }

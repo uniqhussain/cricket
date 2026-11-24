@@ -148,7 +148,6 @@ function createState(raw: Match, suppliedRoster: RosterPlayer[], ground: Ground)
   const sides: Match['sides'] = [raw.sides[0].map(name => name.trim()), raw.sides[1].map(name => name.trim())]
   const state: Match = {
     sides, games: [[], []], innings: 0, overs: raw.overs, lastMan: raw.lastMan,
-    designations: [sides[1][0], sides[0][0]],
     ground,
     teamNames: [raw.teamNames[0].trim(), raw.teamNames[1].trim()],
     teamNicknames: raw.teamNicknames && [raw.teamNicknames[0].trim(), raw.teamNicknames[1].trim()],

@@ -13,7 +13,6 @@ export type Match = {
   games: [Delivery[], Delivery[]]
   innings: 0 | 1
   lastMan: boolean
-  designations: [string, string]
 }
 export type Ground = { id: string; name: string }
 export type Toss = { winner: 0 | 1; decision: 'bat' | 'bowl' }
@@ -78,7 +77,6 @@ export function rulesFor(match: Match, innings: 0 | 1): Rules {
     overs: match.overs ?? 5,
     batters: match.sides[side],
     bowlers: match.sides[oppositeSide(side)],
-    designated: match.designations[side],
     lastMan: match.lastMan,
     target: innings === 1 ? replay(rulesFor(match, 0), match.games[0]).runs + 1 : undefined,
   }

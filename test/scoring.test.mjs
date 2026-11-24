@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { replay } from '../app/scoring.ts'
+import { eligibleBowlers, replay } from '../app/scoring.ts'
 
-const rules = { overs: 5, batters: ['A', 'B', 'C', 'D'], bowlers: ['E', 'F', 'G', 'H'], designated: 'E', lastMan: true }
+const rules = { overs: 5, batters: ['A', 'B', 'C', 'D'], bowlers: ['E', 'F', 'G', 'H'], lastMan: true }
 const ball = (kind = 'legal', batRuns = 0, physicalRuns = batRuns, bowler = 'E') => ({ kind, batRuns, physicalRuns, bowler })
 
 test('wides and no-balls score without advancing the over', () => {
@@ -22,6 +22,26 @@ test('enforces bowling quota and consecutive-over rule', () => {
   assert.throws(() => replay(rules, [...over('E'), ball()]), /different bowler/)
   const score = replay(rules, ['E', 'F', 'E', 'G', 'H'].flatMap(over))
   assert.deepEqual([score.quota.E, score.overs, score.complete], [12, '5.0', true])
+})
+
+test('a first-over bowler can return in the third without being first in the lineup', () => {
+  const twoBowlers = { ...rules, overs: 3, bowlers: ['Hussain', 'Immanuel'] }
+  const over = bowler => Array.from({ length: 6 }, () => ball('legal', 0, 0, bowler))
+  const firstTwo = [...over('Immanuel'), ...over('Hussain')]
+  assert.deepEqual(eligibleBowlers(twoBowlers, replay(twoBowlers, firstTwo)), ['Immanuel'])
+  const complete = replay(twoBowlers, [...firstTwo, ...over('Immanuel')])
+  assert.equal(complete.complete, true)
+  assert.equal(complete.quota.Immanuel, 12)
+})
+
+test('once a bowler takes a second over, nobody else can take one', () => {
+  const over = bowler => Array.from({ length: 6 }, () => ball('legal', 0, 0, bowler))
+  const sequence = ['F', 'E', 'F', 'G'].flatMap(over)
+  const score = replay(rules, sequence)
+  assert.equal(score.repeatBowler, 'F')
+  assert.deepEqual(eligibleBowlers(rules, score), ['H'])
+  assert.throws(() => replay(rules, [...sequence, ball('legal', 0, 0, 'E')]), /reached their quota/)
+  assert.throws(() => replay(rules, [...sequence, ball('legal', 0, 0, 'F')]), /reached their quota/)
 })
 
 test('a chase finishes as soon as the target is met', () => {

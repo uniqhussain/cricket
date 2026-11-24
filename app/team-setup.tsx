@@ -231,12 +231,12 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
       onStart({
         ground, teamNames: [teams[0].trim(), teams[1].trim()],
         teamNicknames: [nicknames[0].trim(), nicknames[1].trim()],
-        sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0,
+        sides, overs, lastMan: form.has('lastMan'), games: [[], []], innings: 0,
       }, roster)
     }}>
       <h2>Assign players to teams</h2>
       {ground && <p className="muted">{ground.name}</p>}
-      <p>Members bat in the order added. The first member can bowl two overs, and each other member one.</p>
+      <p>Players bat in the order added. One bowler per team can bowl two overs. No bowler can bowl consecutive overs.</p>
       {accounts && <p>Choose registered players. Admins and assigned players with umpire access can score.</p>}
       {([0, 1] as const).map(index => <fieldset key={index}>
         <legend>Team {index === 0 ? 'A' : 'B'} · {nicknames[index].trim() || teams[index].trim()}</legend>

@@ -8,7 +8,7 @@ import MatchToss from './match-toss'
 import PhotoSignIn from './photo-sign-in'
 import UserSettings, { SharedRequestError, sharedRequest, type SessionUser } from './user-settings'
 import type { Profile } from './profile'
-import { replay, type Delivery } from './scoring'
+import { eligibleBowlers, replay, type Delivery } from './scoring'
 import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, tossSummary, updateMatchFinish, type Account, type Ground, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
 
 const storageKey = 'turf-cricket-match-v1'
@@ -206,10 +206,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const tossPending = match && awaitingToss(match)
   const deliveries = match && match.games[match.innings]
   const score = rules && deliveries && replay(rules, deliveries)
-  const available = rules && score ? rules.bowlers.filter(name =>
-    name !== score.striker && name !== score.partner && name !== score.previousBowler
-    && (score.quota[name] ?? 0) < (name === rules.designated ? 12 : 6)
-  ) : []
+  const available = rules && score ? eligibleBowlers(rules, score) : []
   const activeBowler = score?.currentBowler ?? (available.includes(bowler) ? bowler : '')
   const frozenCount = match ? frozenOvers(match, match.innings).at(-1)?.end ?? 0 : 0
 

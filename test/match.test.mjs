@@ -6,7 +6,7 @@ import { replay } from '../app/scoring.ts'
 
 const match = {
   overs: 2, sides: [['A', 'B'], ['C', 'D']], games: [[], []],
-  innings: 0, lastMan: true, designations: ['C', 'A'],
+  innings: 0, lastMan: true,
   toss: { winner: 0, decision: 'bat' },
 }
 const dot = { kind: 'legal', batRuns: 0, physicalRuns: 0, bowler: 'C' }
@@ -27,7 +27,6 @@ test('the toss is required before scoring and all four outcomes choose the batti
       assert.equal(battingSide(started, 1), 1 - first)
       assert.deepEqual(rulesFor(started, 0).batters, match.sides[first])
       assert.deepEqual(rulesFor(started, 0).bowlers, match.sides[1 - first])
-      assert.equal(rulesFor(started, 0).designated, match.designations[first])
       assert.throws(() => applyOperation(started, { operation: 'toss', toss: started.toss }, true), /cannot be changed/)
     }
   }
