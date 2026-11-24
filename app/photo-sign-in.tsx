@@ -2,24 +2,24 @@
 
 import { useEffect, useState } from 'react'
 
-export default function PhotoSignIn({ onSession, scoring = false }: { onSession?: () => void; scoring?: boolean }) {
+export default function PhotoSignIn({ onSession }: { onSession: () => void }) {
   const [signedIn, setSignedIn] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     fetch('/api/photo-session').then(response => response.json()).then(data => setSignedIn(data.signedIn === true)).catch(() => {})
   }, [])
-  if (signedIn) return scoring ? <button disabled={busy} onClick={async () => {
+  if (signedIn) return <button disabled={busy} onClick={async () => {
     setBusy(true)
     try {
       const response = await fetch('/api/photo-session', { method: 'DELETE' })
       if (!response.ok) throw new Error('Could not sign out.')
       setSignedIn(false)
-      onSession?.()
+      onSession()
     } catch { setError('Could not sign out.') }
     finally { setBusy(false) }
-  }}>Sign out{error && <span role="alert"> · {error}</span>}</button> : <p>Photo uploads enabled.</p>
-  return <details open={scoring || undefined}><summary>{scoring ? 'Sign in to shared scoring' : 'Sign in to upload player photos'}</summary>
+  }}>Sign out{error && <span role="alert"> · {error}</span>}</button>
+  return <details open><summary>Sign in</summary>
     <form onSubmit={async event => {
       event.preventDefault()
       const form = event.currentTarget
@@ -35,7 +35,7 @@ export default function PhotoSignIn({ onSession, scoring = false }: { onSession?
         if (!response.ok) throw new Error(result.error)
         form.reset()
         setSignedIn(true)
-        onSession?.()
+        onSession()
       } catch (err) { setError(err instanceof Error ? err.message : 'Could not sign in.') }
       finally { setBusy(false) }
     }}>

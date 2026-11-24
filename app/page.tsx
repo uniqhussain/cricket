@@ -17,6 +17,7 @@ export default function Page() {
   const [matches, setMatches] = useState<{ id: string; name: string; status: string }[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [view, setView] = useState<'home' | 'settings'>('home')
   const [setup, setSetup] = useState<'shared' | 'local' | null>(null)
   const [showLocal, setShowLocal] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -69,7 +70,7 @@ export default function Page() {
     if (!data.user) {
       selection.current++
       setShared(null)
-      setSetup(null)
+      setSetup(previous => previous === 'shared' ? null : previous)
     }
     const directory = data.user?.admin
       ? await sharedRequest<{ accounts: Account[]; profiles: Profile[] }>('?users')
@@ -180,20 +181,30 @@ export default function Page() {
     .map(value => String(value).padStart(2, '0')).join(':')
 
   return <main>
-    <header>Turf Cricket</header>
-    <h1>{match ? 'Match scorer' : 'Matches'}</h1>
-    <section>
-      <PhotoSignIn scoring onSession={() => {
-        selection.current++
-        setShared(null)
-        setSetup(null)
-        setError('')
-        void refreshSession().catch(report)
-      }} />
-      {user && <UserSettings key={user.id} {...{ user, profile, accounts, profiles }} reload={refreshSession} />}
-    </section>
-    {match && <p className="muted">{shared ? 'Shared match · Saved to Supabase' : 'Local match · Saved in this browser'}</p>}
+    <header className="site-header">
+      Turf Cricket
+      <nav className="actions" aria-label="Main navigation">
+        <button type="button" aria-pressed={view === 'home'} onClick={() => setView('home')}>Home</button>
+        <button type="button" aria-pressed={view === 'settings'} onClick={() => setView('settings')}>Settings</button>
+      </nav>
+    </header>
     {error && <p className="error" role="alert">{error}</p>}
+    {view === 'settings' && <>
+      <h1>Settings</h1>
+      <section className="account-settings">
+        <PhotoSignIn onSession={() => {
+          selection.current++
+          setShared(null)
+          setSetup(previous => previous === 'shared' ? null : previous)
+          setError('')
+          void refreshSession().catch(report)
+        }} />
+        {user && <UserSettings key={user.id} {...{ user, profile, accounts, profiles }} reload={refreshSession} />}
+      </section>
+    </>}
+    <div hidden={view !== 'home'}>
+    <h1>{match ? 'Match scorer' : 'Matches'}</h1>
+    {match && <p className="muted">{shared ? 'Shared match · Saved to Supabase' : 'Local match · Saved in this browser'}</p>}
     {!ready && <p>Opening scorer…</p>}
     {ready && !match && <>
       <section>
@@ -328,6 +339,7 @@ export default function Page() {
         </li>)}</ol> : <p>No scoring updates yet.</p>}
       </section>}
     </>}
+    </div>
   </main>
 }
 

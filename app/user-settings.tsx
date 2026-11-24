@@ -40,7 +40,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
     finally { setBusy(false) }
   }
 
-  return <details>
+  return <details open>
     <summary>{user.admin ? 'User settings' : 'My profile'}</summary>
     {user.admin && <label>Choose a verified user
       <select value={selection} disabled={busy} onChange={event => { setSelection(event.target.value); setMessage('') }}>

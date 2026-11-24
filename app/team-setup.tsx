@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import type { Account, Match, RosterPlayer } from './match'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
 import GroundSettings, { useGrounds } from './ground-settings'
-import PhotoSignIn from './photo-sign-in'
 
 const roles = ['Batter', 'Bowler', 'All-rounder', 'Wicketkeeper'] as const
 const battingHands = ['Right-hand bat', 'Left-hand bat'] as const
@@ -90,7 +89,6 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
     {step === 'settings' && <GroundSettings {...groundSettings} />}
     {step === 'players' && <section>
       <h2>Add players</h2>
-      {!accounts && <PhotoSignIn />}
       <form onSubmit={async event => {
         event.preventDefault()
         const trimmed = name.trim()
@@ -154,7 +152,7 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
           {bowlingStyles.map(option => <option key={option}>{option}</option>)}
         </select></label>
         <label className="captain-option"><input type="checkbox" checked={isCaptain} disabled={savingPlayer} onChange={e => setIsCaptain(e.target.checked)} /> Club captain</label>
-        <label>Photo (optional)<input key={photoInputKey} type="file" accept="image/jpeg,image/png,image/webp" disabled={processingPhoto || savingPlayer} onChange={async event => {
+        <label>Photo (optional, sign in through Settings to upload)<input key={photoInputKey} type="file" accept="image/jpeg,image/png,image/webp" disabled={processingPhoto || savingPlayer} onChange={async event => {
           const file = event.target.files?.[0]
           if (!file) return
           setPhoto('')
