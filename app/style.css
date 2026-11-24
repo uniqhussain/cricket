@@ -9,3 +9,22 @@ fieldset{border:1px solid #52685f;border-radius:12px;padding:16px;margin:20px 0;
 .site-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .site-header button[aria-pressed="false"] { background: transparent; color: inherit; }
 .account-settings > details + details, .account-settings > button + details { margin-top: 16px; }
+
+.password-field { margin: 10px 0; }
+.password-field label { margin: 0 0 4px; }
+.password-control { position: relative; }
+.password-control input { padding-inline-end: 50px; }
+.password-toggle {
+  position: absolute; inset-block: 1px; inset-inline-end: 1px; width: 44px;
+  display: grid; place-items: center; border: 0; background: transparent; color: #a3efbe; padding: 0;
+}
+.password-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
+.password-eye {
+  width: 17px; height: 17px; border: 2px solid currentColor;
+  border-radius: 70% 15%; transform: rotate(45deg); display: grid; place-items: center;
+}
+.password-eye::after { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.password-eye-slash {
+  position: absolute; width: 23px; height: 2px; background: currentColor;
+  box-shadow: 0 1px #0e1917; transform: rotate(-45deg);
+}

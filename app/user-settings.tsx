@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { accountRoles, type Account, type AccountRole } from './match'
 import { battingHands, bowlingStyles, roles, type Profile } from './profile'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
+import PasswordInput from './password-input'
+import { minAdminPasswordLength, minPlayerPasswordLength } from './player-login'
 
 export type SessionUser = { id: string; admin: boolean; role: AccountRole }
 
@@ -58,7 +60,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
       }}>
         <label>Player name<input name="name" required maxLength={80} disabled={busy} /></label>
         <label>Player email<input name="email" type="email" required maxLength={254} disabled={busy} /></label>
-        <label>Initial password<input name="password" type="password" required minLength={12} maxLength={72} autoComplete="new-password" disabled={busy} /></label>
+        <PasswordInput label="Initial password" name="password" required minLength={minPlayerPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
         <button disabled={busy}>Add player</button>
       </form>
     </details>}
@@ -148,7 +150,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
         }, () => form.reset(), 'Login created. The user can now sign in with the credentials you chose.')
       }}>
         <label>User ID<input name="username" required minLength={3} maxLength={40} autoComplete="off" /></label>
-        <label>Initial password<input name="password" type="password" required minLength={12} maxLength={72} autoComplete="new-password" /></label>
+        <PasswordInput label="Initial password" name="password" required minLength={minAdminPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
         <button disabled={busy}>Create login</button>
       </form>
     </details>}
@@ -159,7 +161,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
         const form = event.currentTarget
         void update({ operation: 'resetLogin', password: new FormData(form).get('password') }, () => form.reset())
       }}>
-        <label>New password<input name="password" type="password" required minLength={12} maxLength={72} autoComplete="new-password" /></label>
+        <PasswordInput label="New password" name="password" required minLength={minPlayerPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
         <button disabled={busy}>Reset password</button>
       </form>
       <button disabled={busy} onClick={() => void update({ operation: 'disableLogin', disabled: !account.disabled })}>

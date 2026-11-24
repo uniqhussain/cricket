@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import PasswordInput from './password-input'
 
 export default function PhotoSignIn({ onSession }: { onSession: () => void }) {
   const [signedIn, setSignedIn] = useState(false)
@@ -40,7 +41,7 @@ export default function PhotoSignIn({ onSession }: { onSession: () => void }) {
       finally { setBusy(false) }
     }}>
       <label>User ID, email, or phone with country code<input name="identifier" required autoComplete="username" /></label>
-      <label>Password<input name="password" type="password" required autoComplete="current-password" /></label>
+      <PasswordInput label="Password" name="password" required autoComplete="current-password" />
       {error && <p className="error" role="alert">{error}</p>}
       <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
     </form>
