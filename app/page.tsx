@@ -199,6 +199,7 @@ export default function Page() {
           setError('')
           void refreshSession().catch(report)
         }} />
+        {!user && <p className="muted">Sign in with an admin account to create new user logins.</p>}
         {user && <UserSettings key={user.id} {...{ user, profile, accounts, profiles }} reload={refreshSession} />}
       </section>
     </>}

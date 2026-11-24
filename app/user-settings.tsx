@@ -28,20 +28,21 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
   const account = accounts.find(item => item.id === selection)
   const selected = selection === user.id ? profile : profiles.find(item => item.user_id === selection)
 
-  async function update(body: object, reset?: () => void) {
+  async function update(body: object, reset?: () => void, success = 'Saved.') {
     setBusy(true)
     setMessage('')
     try {
       await sharedRequest('', { ...body, target: selection })
       reset?.()
       await reload()
-      setMessage('Saved.')
+      setMessage(success)
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not save the changes.') }
     finally { setBusy(false) }
   }
 
   return <details open>
     <summary>{user.admin ? 'User settings' : 'My profile'}</summary>
+    {message && <p role="status">{message}</p>}
     {user.admin && <label>Choose a verified user
       <select value={selection} disabled={busy} onChange={event => { setSelection(event.target.value); setMessage('') }}>
         <option value={user.id}>My profile</option>
@@ -67,18 +68,26 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
           {account.admin ? 'Remove admin access' : 'Make admin'}
         </button>}
       </div>
-      {message && <p role="status">{message}</p>}
     </form>
     {user.admin && <details>
-      <summary>Create player login</summary>
+      <summary>Create user login</summary>
       <form onSubmit={event => {
         event.preventDefault()
         const form = event.currentTarget
         const fields = new FormData(form)
-        void update({ operation: 'createLogin', username: fields.get('username'), password: fields.get('password') }, () => form.reset())
+        void update({
+          operation: 'createLogin',
+          username: fields.get('username'),
+          password: fields.get('password'),
+          role: fields.get('role'),
+        }, () => form.reset(), 'Login created. The user can now sign in with the credentials you chose.')
       }}>
-        <label>Player user ID<input name="username" required minLength={3} maxLength={40} autoComplete="off" /></label>
+        <label>User ID<input name="username" required minLength={3} maxLength={40} autoComplete="off" /></label>
         <label>Initial password<input name="password" type="password" required minLength={12} maxLength={72} autoComplete="new-password" /></label>
+        <label>Role<select name="role" defaultValue="player">
+          <option value="player">Player</option>
+          <option value="admin">Admin</option>
+        </select></label>
         <button disabled={busy}>Create login</button>
       </form>
     </details>}

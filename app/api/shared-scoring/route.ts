@@ -52,7 +52,7 @@ async function authAdmin(path: string, method: string, body?: object) {
   if (!response.ok) {
     if (response.status === 422 || response.status === 400)
       throw new RequestError('The user ID may already exist, or the password does not meet the project rules.', 400)
-    throw new RequestError('Could not update the player login.', 503)
+    throw new RequestError('Could not update the login.', 503)
   }
   return result
 }
@@ -159,12 +159,23 @@ export async function POST(request: Request) {
         || new TextEncoder().encode(body.password).length > 72))
         throw new RequestError('Use a password of 12–72 bytes.', 400)
       if (body.operation === 'createLogin') {
+        const role = body.role === undefined ? 'player' : body.role
+        if (role !== 'admin' && role !== 'player') throw new RequestError('Choose Admin or Player.', 400)
         const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : ''
         if (!playerUsername.test(username))
           throw new RequestError('Use 3–40 letters, digits, dots, underscores or hyphens for the user ID.', 400)
-        await authAdmin('', 'POST', {
+        const created = await authAdmin('', 'POST', {
           ...loginIdentifier(username), password: body.password, email_confirm: true, app_metadata: { cricket_player: true },
         })
+        if (role === 'admin') {
+          if (typeof created?.id !== 'string' || !uuid.test(created.id))
+            throw new RequestError('Check User settings to see whether the login was created before retrying.', 503)
+          try {
+            await rpc('cricket_set_admin', { actor: user.id, target: created.id, enabled: true })
+          } catch {
+            throw new RequestError('The login was created. Check its role in User settings and use Make admin if needed.', 503)
+          }
+        }
       } else {
         if (typeof body.target !== 'string' || !uuid.test(body.target)) throw new RequestError('Choose a player login.', 400)
         const accounts = await rpc<Account[]>('cricket_accounts', { actor: user.id })
