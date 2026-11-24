@@ -92,11 +92,12 @@ async function matchDetails(match: MatchRow) {
 export async function GET(request: Request) {
   try {
     const user = await session()
+    const params = new URL(request.url).searchParams
+    if (!user && (params.has('match') || params.has('users'))) throw new RequestError('Sign in to continue.', 401)
     if (!user) return Response.json({ user: null, matches: [], configured: Boolean(
       process.env.SUPABASE_URL && (process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY)
       && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY),
     ) })
-    const params = new URL(request.url).searchParams
     const id = params.get('match')
     if (id) return Response.json({ match: await matchDetails(await loadMatch(id, user)), user })
     if (params.has('users')) {

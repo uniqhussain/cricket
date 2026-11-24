@@ -1,6 +1,6 @@
 param(
     [string]$Kit = 'D:/VendorPayment/.tools/android-kit',
-    [string]$Output = (Join-Path $PSScriptRoot 'output/Turf-Cricket-1.0.0.apk')
+    [string]$Output = (Join-Path $PSScriptRoot 'output/Turf-Cricket-1.1.0.apk')
 )
 
 $ErrorActionPreference = 'Stop'

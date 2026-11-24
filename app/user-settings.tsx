@@ -9,6 +9,9 @@ import { minAdminPasswordLength, minPlayerPasswordLength } from './player-login'
 
 export type SessionUser = { id: string; admin: boolean; role: AccountRole }
 type SettingsView = 'add' | 'manage' | 'profile'
+export class SharedRequestError extends Error {
+  constructor(message: string, public readonly status: number) { super(message) }
+}
 const roleDescriptions: Record<AccountRole, string> = {
   player: 'Can view assigned matches and edit their own profile.',
   umpire: 'Can score assigned matches and edit their own profile.',
@@ -20,7 +23,7 @@ export async function sharedRequest<T>(query = '', body?: object): Promise<T> {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   } : { cache: 'no-store' })
   const result = await response.json()
-  if (!response.ok) throw new Error(result.error ?? 'Could not update shared scoring.')
+  if (!response.ok) throw new SharedRequestError(result.error ?? 'Could not update shared scoring.', response.status)
   return result as T
 }
 

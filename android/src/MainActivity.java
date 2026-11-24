@@ -27,7 +27,7 @@ import android.widget.TextView;
 
 public final class MainActivity extends Activity {
     private static final String HOST = "cricket-pi-lac.vercel.app";
-    private static final String HOME = "https://" + HOST + "/";
+    private static final String HOME = "https://" + HOST + "/mobile";
     private static final int CHOOSE_PHOTO = 1;
     private static final int BACKGROUND = Color.rgb(14, 25, 23);
 
