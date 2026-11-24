@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
 import GroundSettings from './ground-settings'
 import MatchScorecard from './match-scorecard'
+import MatchToss from './match-toss'
 import PhotoSignIn from './photo-sign-in'
 import UserSettings, { SharedRequestError, sharedRequest, type SessionUser } from './user-settings'
 import type { Profile } from './profile'
 import { replay, type Delivery } from './scoring'
-import { canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, updateMatchFinish, type Account, type Ground, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
+import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, tossSummary, updateMatchFinish, type Account, type Ground, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
 
 const storageKey = 'turf-cricket-match-v1'
 
@@ -202,6 +203,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   }
 
   const rules = match && rulesFor(match, match.innings)
+  const tossPending = match && awaitingToss(match)
   const deliveries = match && match.games[match.innings]
   const score = rules && deliveries && replay(rules, deliveries)
   const available = rules && score ? rules.bowlers.filter(name =>
@@ -258,7 +260,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       {user?.admin && <GroundSettings grounds={grounds} addGround={addGround} />}
     </>}
     <div hidden={view !== 'home'}>
-    <h1>{match ? 'Match scorer' : 'Matches'}</h1>
+    <h1>{match ? tossPending ? 'Match toss' : 'Match scorer' : 'Matches'}</h1>
     {match && <p className="muted">{shared ? 'Shared match · Saved to Supabase' : 'Local match · Saved in this browser'}</p>}
     {!ready && <p>Opening scorer…</p>}
     {ready && !match && <>
@@ -285,6 +287,11 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         void refreshSession().catch(report)
       }}>Back to matches</button>
       {shared && <button disabled={busy} onClick={() => void openMatch(shared.id)}>Refresh score</button>}
+      {tossPending ? canScore ? <MatchToss key={shared?.id} match={match} busy={busy} onSave={toss => {
+        const action = { operation: 'toss', toss } as const
+        if (shared) updateScore(action)
+        else save(applyOperation(match, action, true))
+      }} /> : <section><p>Waiting for an admin or match umpire to record the toss.</p></section> : <>
       {shared && !canScore && <p className="muted">You can view this score. Only admins and match umpires can update it.</p>}
       <section aria-label="Match timing">
         <h2>Match timer</h2>
@@ -303,11 +310,14 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       </section>
       <section aria-live="polite">
         {match.ground && <p className="muted">{match.ground.name}</p>}
-        <div>{teamLabel(match, match.innings)} batting</div>
+        {match.toss && <p>{tossSummary(match)}</p>}
+        <div>{teamLabel(match, battingSide(match, match.innings))} batting</div>
         <p className="score">{score.runs}/{score.wickets}</p>
         <p>{score.overs} / {rules.overs} overs · {score.extras} extras</p>
         {rules.target !== undefined && <p>Target {rules.target} · {Math.max(0, rules.target - score.runs)} needed from {rules.overs * 6 - score.legal} balls</p>}
-        {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target! ? teamLabel(match, 1) + ' wins' : score.runs === rules.target! - 1 ? 'Match tied' : teamLabel(match, 0) + ' wins'}</strong>}
+        {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target!
+          ? teamLabel(match, battingSide(match, 1)) + ' wins'
+          : score.runs === rules.target! - 1 ? 'Match tied' : teamLabel(match, battingSide(match, 0)) + ' wins'}</strong>}
       </section>
       {canScore && !score.complete && !stoppedAt && <section><fieldset disabled={busy}>
         <legend>Record delivery</legend>
@@ -378,7 +388,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
                 </select></label>}
                 {ball.kind === 'legal' && <label>Dismissed batter<select name="dismissed" defaultValue={ball.dismissed ?? ''}>
                   <option value="">None</option>
-                  {match.sides[innings].map(batter => <option key={batter}>{batter}</option>)}
+                  {match.sides[battingSide(match, innings)].map(batter => <option key={batter}>{batter}</option>)}
                 </select></label>}
                 <button disabled={busy}>Save correction</button>
               </form>
@@ -389,7 +399,9 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       </section>
       {shared && <section><h2>Score updates</h2>
         {shared.audit.length ? <ol>{shared.audit.map(entry => <li key={entry.id}>
-          {entry.details.actorName ?? entry.actor_id} · {entry.action === 'lock' ? 'Locked over ' + entry.details.over
+          {entry.details.actorName ?? entry.actor_id} · {entry.details.toss
+            ? 'Recorded toss: ' + teamLabel(match, entry.details.toss.winner) + ' chose to ' + entry.details.toss.decision
+            : entry.action === 'lock' ? 'Locked over ' + entry.details.over
             : ({ ball: 'Recorded a delivery', correct: 'Corrected a delivery', undo: 'Undid a delivery',
               chase: 'Started the chase', stop: 'Stopped the match', timer: 'Started the timer' }[entry.details.operation ?? ''] ?? entry.action)}
           {entry.details.innings !== undefined && ' · Innings ' + (entry.details.innings + 1)}
@@ -397,6 +409,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           {' · ' + new Date(entry.created_at).toLocaleString()}
         </li>)}</ol> : <p>No scoring updates yet.</p>}
       </section>}
+      </>}
     </>}
     </div>
   </main>

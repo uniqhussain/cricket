@@ -1,16 +1,47 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOperation, canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, updateMatchFinish } from '../app/match.ts'
+import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, updateMatchFinish } from '../app/match.ts'
 import { loginIdentifier } from '../app/player-login.ts'
 import { replay } from '../app/scoring.ts'
 
 const match = {
   overs: 2, sides: [['A', 'B'], ['C', 'D']], games: [[], []],
   innings: 0, lastMan: true, designations: ['C', 'A'],
+  toss: { winner: 0, decision: 'bat' },
 }
 const dot = { kind: 'legal', batRuns: 0, physicalRuns: 0, bowler: 'C' }
 const wide = { ...dot, kind: 'wide' }
 const play = (state, balls) => balls.reduce((result, ball) => applyOperation(result, { operation: 'ball', ball }, false), state)
+
+test('the toss is required before scoring and all four outcomes choose the batting order', () => {
+  const pending = { ...match, toss: undefined }
+  assert.equal(awaitingToss(pending), true)
+  assert.throws(() => play(pending, [dot]), /Record the toss/)
+  assert.throws(() => applyOperation(pending, { operation: 'toss', toss: { winner: 2, decision: 'bat' } }, true), /Choose the toss winner/)
+  for (const winner of [0, 1]) {
+    for (const decision of ['bat', 'bowl']) {
+      const first = decision === 'bat' ? winner : 1 - winner
+      const started = applyOperation(pending, { operation: 'toss', toss: { winner, decision } }, false)
+      assert.ok(started.startedAt)
+      assert.equal(battingSide(started, 0), first)
+      assert.equal(battingSide(started, 1), 1 - first)
+      assert.deepEqual(rulesFor(started, 0).batters, match.sides[first])
+      assert.deepEqual(rulesFor(started, 0).bowlers, match.sides[1 - first])
+      assert.equal(rulesFor(started, 0).designated, match.designations[first])
+      assert.throws(() => applyOperation(started, { operation: 'toss', toss: started.toss }, true), /cannot be changed/)
+    }
+  }
+})
+
+test('existing scored matches keep their batting order, and existing empty matches can record the toss', () => {
+  const legacy = { ...match, toss: undefined, startedAt: 5000 }
+  const started = applyOperation(legacy, { operation: 'toss', toss: { winner: 0, decision: 'bowl' } }, true)
+  assert.equal(started.startedAt, 5000)
+  const scored = { ...legacy, games: [[dot], []] }
+  assert.equal(awaitingToss(scored), false)
+  assert.equal(battingSide(scored, 0), 0)
+  assert.throws(() => applyOperation(scored, { operation: 'toss', toss: started.toss }, true), /cannot be changed/)
+})
 
 test('the clock freezes when the chase ends and resumes if undo reopens it', () => {
   const firstInnings = play({ ...match, overs: 1, startedAt: 1000 }, Array(6).fill(dot))

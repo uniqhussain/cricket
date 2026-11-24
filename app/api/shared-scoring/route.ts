@@ -147,7 +147,7 @@ function createState(raw: Match, suppliedRoster: RosterPlayer[], ground: Ground)
     throw new RequestError('Each match player needs a different account.', 400)
   const sides: Match['sides'] = [raw.sides[0].map(name => name.trim()), raw.sides[1].map(name => name.trim())]
   const state: Match = {
-    sides, games: [[], []], innings: 0, startedAt: Date.now(), overs: raw.overs, lastMan: raw.lastMan,
+    sides, games: [[], []], innings: 0, overs: raw.overs, lastMan: raw.lastMan,
     designations: [sides[1][0], sides[0][0]],
     ground,
     teamNames: [raw.teamNames[0].trim(), raw.teamNames[1].trim()],
@@ -300,7 +300,7 @@ export async function POST(request: Request) {
     const event = {
       operation: body.operation, actorName: member?.player_name || profile?.name || (user.admin ? 'Admin ' : 'Umpire ') + user.id.slice(0, 8),
       innings: body.operation === 'correct' ? body.innings : match.cricket_state.innings,
-      ...(body.operation === 'correct' ? {
+      ...(body.operation === 'toss' ? { toss: state.toss } : body.operation === 'correct' ? {
         delivery: body.index + 1, before: match.cricket_state.games[body.innings as 0 | 1][body.index],
         after: state.games[body.innings as 0 | 1][body.index],
       } : body.operation === 'ball' ? { delivery: state.games[state.innings].length, after: state.games[state.innings].at(-1) }

@@ -1,6 +1,7 @@
 import { replay, type Delivery, type Rules } from './scoring.ts'
 
 export type Match = {
+  toss?: Toss
   startedAt?: number
   stoppedAt?: number
   finishedAt?: number
@@ -15,6 +16,26 @@ export type Match = {
   designations: [string, string]
 }
 export type Ground = { id: string; name: string }
+export type Toss = { winner: 0 | 1; decision: 'bat' | 'bowl' }
+
+export function battingSide(match: Match, innings: 0 | 1): 0 | 1 {
+  const toss = match.toss
+  const first: 0 | 1 = toss ? (toss.decision === 'bat' ? toss.winner : oppositeSide(toss.winner)) : 0
+  return innings === 0 ? first : oppositeSide(first)
+}
+
+export function oppositeSide(side: 0 | 1): 0 | 1 {
+  return side === 0 ? 1 : 0
+}
+
+export function awaitingToss(match: Match) {
+  return !match.toss && match.innings === 0 && !match.stoppedAt && !match.finishedAt
+    && match.games.every(deliveries => deliveries.length === 0)
+}
+
+export function tossSummary(match: Match) {
+  return match.toss ? teamLabel(match, match.toss.winner) + ' won the toss and chose to ' + match.toss.decision + '.' : ''
+}
 
 export function teamLabel(match: Match, side: 0 | 1) {
   return match.teamNicknames?.[side] || match.teamNames?.[side] || (side === 0 ? 'Team A' : 'Team B')
@@ -46,17 +67,18 @@ export type AuditEntry = {
   id: number
   actor_id: string
   action: string
-  details: { operation?: string; actorName?: string; innings?: number; over?: number; delivery?: number }
+  details: { operation?: string; actorName?: string; innings?: number; over?: number; delivery?: number; toss?: Toss }
   created_at: string
 }
 export type SharedMatch = { id: string; cricket_state: Match; revision: number; audit: AuditEntry[] }
 
 export function rulesFor(match: Match, innings: 0 | 1): Rules {
+  const side = battingSide(match, innings)
   return {
     overs: match.overs ?? 5,
-    batters: match.sides[innings],
-    bowlers: match.sides[1 - innings],
-    designated: match.designations[innings],
+    batters: match.sides[side],
+    bowlers: match.sides[oppositeSide(side)],
+    designated: match.designations[side],
     lastMan: match.lastMan,
     target: innings === 1 ? replay(rulesFor(match, 0), match.games[0]).runs + 1 : undefined,
   }
@@ -79,6 +101,7 @@ export function frozenOvers(match: Match, innings: 0 | 1) {
 }
 
 export type ScoreOperation =
+  | { operation: 'toss'; toss: Toss }
   | { operation: 'ball'; ball: Delivery }
   | { operation: 'correct'; innings: 0 | 1; index: number; ball: Delivery }
   | { operation: 'undo' | 'chase' | 'stop' | 'timer' }
@@ -95,6 +118,14 @@ function validatedBall(ball: Delivery) {
 }
 
 export function applyOperation(match: Match, input: ScoreOperation, admin: boolean) {
+  if (input.operation === 'toss') {
+    if (!awaitingToss(match)) throw new Error('The toss cannot be changed once it is recorded or scoring has started.')
+    const { winner, decision } = input.toss ?? {}
+    if ((winner !== 0 && winner !== 1) || (decision !== 'bat' && decision !== 'bowl'))
+      throw new Error('Choose the toss winner and whether they elected to bat or bowl.')
+    return { ...match, toss: { winner, decision }, startedAt: match.startedAt ?? Date.now() }
+  }
+  if (awaitingToss(match)) throw new Error('Record the toss before scoring.')
   const innings = match.innings
   const current = replay(rulesFor(match, innings), match.games[innings])
   const games: Match['games'] = [...match.games]

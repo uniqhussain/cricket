@@ -229,7 +229,7 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
         return
       }
       onStart({
-        startedAt: Date.now(), ground, teamNames: [teams[0].trim(), teams[1].trim()],
+        ground, teamNames: [teams[0].trim(), teams[1].trim()],
         teamNicknames: [nicknames[0].trim(), nicknames[1].trim()],
         sides, overs, designations: [sides[1][0], sides[0][0]], lastMan: form.has('lastMan'), games: [[], []], innings: 0,
       }, roster)

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { rulesFor, teamLabel, type Match } from './match'
+import { battingSide, oppositeSide, rulesFor, teamLabel, tossSummary, type Match } from './match'
 import { formatOvers, replay } from './scoring'
 
 export default function MatchScorecard({ match }: { match: Match }) {
@@ -11,10 +11,12 @@ export default function MatchScorecard({ match }: { match: Match }) {
   return <section aria-label="Match scorecard">
     <details open={final}>
       <summary className="scorecard-title">{final ? 'Final scorecard' : 'Scorecard'}</summary>
+      {match.toss && <p className="muted">{tossSummary(match)}</p>}
       {([0, 1] as const).map(innings => {
         const score = inningsScores[innings]
-        const battingTeam = teamLabel(match, innings)
-        const bowlingTeam = teamLabel(match, innings === 0 ? 1 : 0)
+        const side = battingSide(match, innings)
+        const battingTeam = teamLabel(match, side)
+        const bowlingTeam = teamLabel(match, oppositeSide(side))
         return <div className="scorecard-innings" key={innings}>
           <h3>{innings === 0 ? 'First innings' : 'Second innings'} · {battingTeam}</h3>
           {!score ? <p className="muted">{innings > match.innings ? 'Innings not played.' : 'No deliveries recorded.'}</p> : <>
