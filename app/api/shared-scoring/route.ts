@@ -1,6 +1,6 @@
 import { signedInUser } from '../photo-session/auth'
 import { applyOperation, canUmpire, frozenOvers, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
-import { loginIdentifier, minAdminPasswordLength, minPlayerPasswordLength, playerUsername } from '../../player-login'
+import { loginIdentifier, minPasswordLength, playerUsername } from '../../player-login'
 import { validatePlayerDetails, type PlayerDetails, type Profile } from '../../profile'
 import { ownsPhotoLink } from '../player-photos/photo-link'
 
@@ -174,12 +174,9 @@ export async function POST(request: Request) {
     }
     if (['createPlayer', 'createLogin', 'resetLogin', 'disableLogin'].includes(body.operation)) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
-      const createsAccount = body.operation === 'createLogin' || body.operation === 'createPlayer'
-      const minLength = createsAccount && body.role === 'admin'
-        ? minAdminPasswordLength : minPlayerPasswordLength
       if (body.operation !== 'disableLogin') {
-        if (typeof body.password !== 'string' || body.password.length < minLength)
-          throw new RequestError('Use at least ' + minLength + ' characters for the password.', 400)
+        if (typeof body.password !== 'string' || body.password.length < minPasswordLength)
+          throw new RequestError('Use at least ' + minPasswordLength + ' characters for the password.', 400)
         if (new TextEncoder().encode(body.password).length > 72)
           throw new RequestError('The password is too long. Use up to 72 bytes.', 400)
       }

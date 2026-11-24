@@ -5,7 +5,7 @@ import { accountRoles, type Account, type AccountRole } from './match'
 import { battingHands, bowlingStyles, roles, type Profile } from './profile'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
 import PasswordInput from './password-input'
-import { minAdminPasswordLength, minPlayerPasswordLength } from './player-login'
+import { minPasswordLength } from './player-login'
 
 export type SessionUser = { id: string; admin: boolean; role: AccountRole }
 type SettingsView = 'add' | 'manage' | 'profile'
@@ -44,7 +44,6 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
   const account = accounts.find(item => item.id === selection)
   const selected = activeView === 'profile' ? profile : profiles.find(item => item.user_id === selection)
   const userNames = new Map(profiles.map(item => [item.user_id, item.name]))
-  const passwordMinimum = newRole === 'admin' ? minAdminPasswordLength : minPlayerPasswordLength
 
   async function update(body: object | (() => Promise<object>), reset?: () => void, success = 'Saved.') {
     setBusy(true)
@@ -95,9 +94,9 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
           {(['player', 'umpire', 'admin'] as const).map(role => <option key={role} value={role}>{accountRoles[role]}</option>)}
         </select></label>
         <p className="muted settings-hint" id="new-role-help">{roleDescriptions[newRole]}</p>
-        <PasswordInput label="Initial password" name="password" required minLength={passwordMinimum} maxLength={72}
+        <PasswordInput label="Initial password" name="password" required minLength={minPasswordLength} maxLength={72}
           autoComplete="new-password" disabled={busy} aria-describedby="new-password-help" />
-        <p className="muted settings-hint" id="new-password-help">At least {passwordMinimum} characters.</p>
+        <p className="muted settings-hint" id="new-password-help">At least {minPasswordLength} characters.</p>
         <button disabled={busy}>{busy ? 'Creating account…' : 'Create account'}</button>
       </form>
     </>}
@@ -196,7 +195,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
         }, () => form.reset(), 'Login created. The user can now sign in with the credentials you chose.')
       }}>
         <label>User ID<input name="username" required minLength={3} maxLength={40} autoComplete="off" /></label>
-        <PasswordInput label="Initial password" name="password" required minLength={minAdminPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
+        <PasswordInput label="Initial password" name="password" required minLength={minPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
         <button disabled={busy}>Create login</button>
       </form>
     </details>}
@@ -207,7 +206,7 @@ export default function UserSettings({ user, profile, accounts, profiles, reload
         const form = event.currentTarget
         void update({ operation: 'resetLogin', password: new FormData(form).get('password') }, () => form.reset())
       }}>
-        <PasswordInput label="New password" name="password" required minLength={minPlayerPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
+        <PasswordInput label="New password" name="password" required minLength={minPasswordLength} maxLength={72} autoComplete="new-password" disabled={busy} />
         <button disabled={busy}>Reset password</button>
       </form>
       <button disabled={busy} onClick={() => void update({ operation: 'disableLogin', disabled: !account.disabled })}>
