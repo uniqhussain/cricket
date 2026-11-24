@@ -262,7 +262,7 @@ export default function Page() {
           <option value="">Select bowler</option>
           {(score.currentBowler ? [score.currentBowler] : available).map(name => <option key={name}>{name}</option>)}
         </select></label>
-        <div className="actions">
+        <div className="actions scoring-pad">
           {[0, 1, 2, 3].map(n => <button key={n} disabled={!activeBowler} onClick={() => addBall('legal', n)}>{n}</button>)}
           {[4, 6].map(n => <button key={n} disabled={!activeBowler} onClick={() => addBall('legal', n, n as 4 | 6, undefined, 0)}>{n}</button>)}
           <button disabled={!activeBowler} onClick={() => addBall('legal', 0, undefined, score.striker)}>Wicket</button>
