@@ -4,30 +4,19 @@ import { useEffect, useState } from 'react'
 import type { Account, Match, RosterPlayer } from './match'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
 import GroundSettings, { useGrounds } from './ground-settings'
+import { battingHands, bowlingStyles, roles, type PlayerDetails, type Profile } from './profile'
 
-const roles = ['Batter', 'Bowler', 'All-rounder', 'Wicketkeeper'] as const
-const battingHands = ['Right-hand bat', 'Left-hand bat'] as const
-const bowlingStyles = [
-  "Doesn't bowl", 'Right-arm fast', 'Right-arm medium', 'Left-arm fast',
-  'Right-arm off-break', 'Right-arm leg-break', 'Left-arm orthodox', 'Left-arm wrist-spin',
-] as const
-type Player = {
+type Player = PlayerDetails & {
   id: string
   name: string
   nickname?: string
-  photo?: string
-  role?: typeof roles[number]
-  jersey?: string
-  batting?: typeof battingHands[number]
-  bowling?: typeof bowlingStyles[number]
-  isCaptain?: boolean
 }
 const registryKey = 'turf-cricket-players-v1'
 
 export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
   onStart: (match: Match, roster?: RosterPlayer[]) => void
   accounts?: Account[]
-  profiles?: { user_id: string; name: string; nickname: string }[]
+  profiles?: Profile[]
   busy?: boolean
 }) {
   const [players, setPlayers] = useState<Player[]>([])
@@ -64,7 +53,7 @@ export default function TeamSetup({ onStart, accounts, profiles = [], busy }: {
   const rosterPlayers: Player[] = accounts
     ? accounts.filter(account => !account.disabled).map(account => {
       const profile = profiles.find(item => item.user_id === account.id)
-      return { id: account.id, name: profile?.name || account.label.slice(0, 80), nickname: profile?.nickname || account.label }
+      return { ...profile?.details, id: account.id, name: profile?.name || account.label.slice(0, 80), nickname: profile?.nickname || account.label }
     }) : players
   const playerName = (id: string) => rosterPlayers.find(player => player.id === id)?.name ?? ''
   const playerCard = (id: string) => {

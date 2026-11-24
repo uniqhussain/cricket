@@ -1,13 +1,10 @@
 import { get, put } from '@vercel/blob'
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { photoUser } from '../photo-session/auth'
+import { photoSignature, readPhotoLink } from './photo-link'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-function signature(id: string, token: string) {
-  return createHmac('sha256', token).update('player-photo:' + id).digest('hex')
-}
 
 export async function POST(request: Request) {
   if (request.headers.get('origin') !== new URL(request.url).origin) {
@@ -19,7 +16,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Photo is too large.' }, { status: 413 })
   }
   try {
-    if (!await photoUser()) return Response.json({ error: 'Sign in before uploading a photo.' }, { status: 401 })
+    const owner = await photoUser()
+    if (!owner) return Response.json({ error: 'Sign in before uploading a photo.' }, { status: 401 })
     const data = await request.formData()
     const photo = data.get('photo')
     if (!(photo instanceof File) || photo.type !== 'image/jpeg' || photo.size > 250000 || photo.size < 3) {
@@ -33,7 +31,8 @@ export async function POST(request: Request) {
     await put('players/' + id + '.jpg', photo, {
       access: 'private', token, contentType: 'image/jpeg', addRandomSuffix: false,
     })
-    return Response.json({ photo: '/api/player-photos?id=' + id + '&signature=' + signature(id, token) })
+    const params = new URLSearchParams({ id, owner, signature: photoSignature(id, token, owner) })
+    return Response.json({ photo: '/api/player-photos?' + params })
   } catch {
     return Response.json({ error: 'Could not upload the photo. Please retry.' }, { status: 502 })
   }
@@ -42,15 +41,10 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   const token = process.env.BLOB_READ_WRITE_TOKEN
   if (!token) return new Response('Photo storage is unavailable.', { status: 503 })
-  const params = new URL(request.url).searchParams
-  const id = params.get('id') ?? ''
-  const supplied = params.get('signature') ?? ''
-  if (!/^[a-f0-9-]{36}$/.test(id) || !/^[a-f0-9]{64}$/.test(supplied)
-    || !timingSafeEqual(Buffer.from(supplied), Buffer.from(signature(id, token)))) {
-    return new Response('Photo not found.', { status: 404 })
-  }
+  const photo = readPhotoLink(new URL(request.url).searchParams, token)
+  if (!photo) return new Response('Photo not found.', { status: 404 })
   try {
-    const result = await get('players/' + id + '.jpg', { access: 'private', token })
+    const result = await get('players/' + photo.id + '.jpg', { access: 'private', token })
     if (result?.statusCode !== 200) return new Response('Photo not found.', { status: 404 })
     return new Response(result.stream, {
       headers: {

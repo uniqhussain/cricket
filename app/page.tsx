@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
 import PhotoSignIn from './photo-sign-in'
-import UserSettings, { sharedRequest, type Profile, type SessionUser } from './user-settings'
+import UserSettings, { sharedRequest, type SessionUser } from './user-settings'
+import type { Profile } from './profile'
 import { replay, type Delivery } from './scoring'
 import { frozenOvers, rulesFor, type Account, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
 

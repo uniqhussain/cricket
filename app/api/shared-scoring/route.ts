@@ -2,9 +2,11 @@ import { signedInUser } from '../photo-session/auth'
 import { applyOperation, frozenOvers, rulesFor, type Account, type AuditEntry, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
 import { replay } from '../../scoring'
 import { loginIdentifier, playerUsername } from '../../player-login'
+import { validatePlayerDetails, type PlayerDetails, type Profile } from '../../profile'
+import { ownsPhotoLink } from '../player-photos/photo-link'
 
 type MatchRow = { id: string; name: string; status: string; cricket_state: Match; revision: number }
-type Profile = { user_id: string; name: string; nickname: string }
+const profileFields = 'user_id,name,nickname,details'
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
 class RequestError extends Error {
@@ -100,10 +102,10 @@ export async function GET(request: Request) {
     if (params.has('users')) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
       const accounts = await rpc<Account[]>('cricket_accounts', { actor: user.id })
-      const profiles = await db<Profile[]>('cricket_profiles?select=user_id,name,nickname')
+      const profiles = await db<Profile[]>('cricket_profiles?select=' + profileFields)
       return Response.json({ accounts, profiles })
     }
-    const [profile] = await db<Profile[]>('cricket_profiles?select=user_id,name,nickname&user_id=eq.' + user.id)
+    const [profile] = await db<Profile[]>('cricket_profiles?select=' + profileFields + '&user_id=eq.' + user.id)
     const rows = user.admin ? null : await db<{ match_id: string }[]>('match_players?select=match_id&user_id=eq.' + user.id)
     const matches = rows?.length === 0 ? [] : await db<MatchRow[]>(
       'matches?select=id,name,status&cricket_state=not.is.null&order=updated_at.desc&limit=100'
@@ -153,12 +155,29 @@ export async function POST(request: Request) {
     if (!user) throw new RequestError('Sign in to continue.', 401)
     const body = await request.json().catch(() => null)
     if (!body || typeof body.operation !== 'string') throw new RequestError('Invalid request.', 400)
-    if (body.operation === 'createLogin' || body.operation === 'resetLogin' || body.operation === 'disableLogin') {
+    if (['createPlayer', 'createLogin', 'resetLogin', 'disableLogin'].includes(body.operation)) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
       if (body.operation !== 'disableLogin' && (typeof body.password !== 'string' || body.password.length < 12
         || new TextEncoder().encode(body.password).length > 72))
         throw new RequestError('Use a password of 12–72 bytes.', 400)
-      if (body.operation === 'createLogin') {
+      if (body.operation === 'createPlayer') {
+        const name = typeof body.name === 'string' ? body.name.trim() : ''
+        const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+        if (!name || name.length > 80) throw new RequestError('Enter a player name of up to 80 characters.', 400)
+        if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.endsWith('.invalid'))
+          throw new RequestError('Enter a valid player email address.', 400)
+        const created = await authAdmin('', 'POST', {
+          email, password: body.password, email_confirm: true, app_metadata: { cricket_player: true },
+        })
+        try {
+          if (typeof created?.id !== 'string' || !uuid.test(created.id)) throw new Error('Missing account ID.')
+          await db('cricket_profiles?on_conflict=user_id', 'POST', {
+            user_id: created.id, name, nickname: '',
+          }, 'resolution=ignore-duplicates')
+        } catch {
+          throw new RequestError('The player login was created. The player can sign in by email and enter their name in My profile.', 503)
+        }
+      } else if (body.operation === 'createLogin') {
         const role = body.role === undefined ? 'player' : body.role
         if (role !== 'admin' && role !== 'player') throw new RequestError('Choose Admin or Player.', 400)
         const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : ''
@@ -207,8 +226,26 @@ export async function POST(request: Request) {
         if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 80
           || typeof body.nickname !== 'string' || body.nickname.length > 40)
           throw new RequestError('Enter a name and an optional nickname.', 400)
+        let details: PlayerDetails | undefined
+        if (body.details !== undefined) {
+          try { details = validatePlayerDetails(body.details) }
+          catch (error) { throw new RequestError(error instanceof Error ? error.message : 'Check your player details.', 400) }
+          const photo = body.details.photo
+          if (photo === '') details.photo = undefined
+          else if (photo !== undefined) {
+            if (typeof photo !== 'string' || photo.length > 512) throw new RequestError('Choose a valid profile photo.', 400)
+            const [current] = await db<Pick<Profile, 'details'>[]>('cricket_profiles?select=details&user_id=eq.' + target)
+            if (current?.details.photo !== photo && !ownsPhotoLink(photo, user.id, process.env.BLOB_READ_WRITE_TOKEN))
+              throw new RequestError('Upload a new photo from your profile.', 400)
+            details.photo = photo
+          } else {
+            const [current] = await db<Pick<Profile, 'details'>[]>('cricket_profiles?select=details&user_id=eq.' + target)
+            details.photo = current?.details.photo
+          }
+        }
         await db('cricket_profiles?on_conflict=user_id', 'POST', {
           user_id: target, name: body.name.trim(), nickname: body.nickname.trim(), updated_at: new Date().toISOString(),
+          ...(details ? { details } : {}),
         }, 'resolution=merge-duplicates')
       }
       return Response.json({ ok: true })
