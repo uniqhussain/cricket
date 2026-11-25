@@ -2,6 +2,29 @@ import { useMemo } from 'react'
 import { battingSide, oppositeSide, rulesFor, teamLabel, tossSummary, type Match } from './match'
 import { formatOvers, replay } from './scoring'
 import { formatPoints, impactPoints } from './impact'
+import CopyScoreImage from './copy-score-image'
+
+type InningsScore = ReturnType<typeof replay>
+const battingColumns = ['Batter', 'R', 'B', '4s', '6s', 'SR']
+const bowlingColumns = ['Bowler', 'O', 'M', 'R', 'W', 'WD', 'NB', 'Econ']
+const impactColumns = ['Player', 'Bat', 'Bowl', 'Field', 'Total']
+
+function battingStatus(batter: InningsScore['batting'][number]) {
+  if (batter.dismissal?.kind === 'run-out') return 'Run-out · ' + batter.dismissal.fielder
+  return batter.dismissedBy ? 'Out · ' + batter.dismissedBy : batter.batted ? 'Not out' : 'Did not bat'
+}
+
+function battingCells(batter: InningsScore['batting'][number]) {
+  return [
+    ...[batter.runs, batter.balls, batter.fours, batter.sixes].map(value => batter.batted ? String(value) : '—'),
+    batter.balls ? (batter.runs * 100 / batter.balls).toFixed(1) : '—',
+  ]
+}
+
+function bowlingCells(bowler: InningsScore['bowling'][number]) {
+  return [formatOvers(bowler.balls), ...[bowler.maidens, bowler.runs, bowler.wickets, bowler.wides, bowler.noBalls].map(String),
+    bowler.balls ? (bowler.runs * 6 / bowler.balls).toFixed(1) : '—']
+}
 
 export function LiveFigures({ score, bowler }: { score: ReturnType<typeof replay>; bowler: string }) {
   const batters = score.batting.filter(batter => [score.striker, score.partner].includes(batter.name))
@@ -36,6 +59,20 @@ export default function MatchScorecard({ match }: { match: Match }) {
   )), [match])
   const final = Boolean(match.finishedAt || match.stoppedAt)
   const impact = useMemo(() => impactPoints(inningsScores), [inningsScores])
+  const matchTitle = teamLabel(match, 0) + ' vs ' + teamLabel(match, 1)
+  const matchNotes = [match.ground?.name, tossSummary(match)].filter((note): note is string => Boolean(note))
+  const leaderTitle = match.finishedAt ? 'Player of the Match' : match.stoppedAt ? 'Impact leader at stoppage' : 'Current match leader'
+  const impactLeader = impact?.match.players[0]
+    ? leaderTitle + ' · ' + impact.match.leaders.join(', ') + ' (' + formatPoints(impact.match.players[0].total) + ')'
+    : ''
+  const impactRate = impact
+    ? (!final ? 'Provisional · ' : '') + impact.runsPerBall.toFixed(2) + ' runs per legal ball · ' + impact.wicketValue.toFixed(2) + ' points per wicket'
+    : ''
+  const impactNotes = impact?.innings.flatMap((item, index) => item?.leaders.length
+    ? ['Innings ' + (index + 1) + ' Impact ' + (item.leaders.length === 1 ? 'Player' : 'Players') + ' · '
+      + item.leaders.join(', ') + ' (' + formatPoints(item.players[0].total) + ')'] : []) ?? []
+  const impactRows = impact?.match.players.map(item =>
+    [item.name, ...[item.batting, item.bowling, item.fielding, item.total].map(formatPoints)]) ?? []
 
   return <><section aria-label="Match scorecard">
     <details open={final}>
@@ -46,40 +83,39 @@ export default function MatchScorecard({ match }: { match: Match }) {
         const side = battingSide(match, innings)
         const battingTeam = teamLabel(match, side)
         const bowlingTeam = teamLabel(match, oppositeSide(side))
+        const title = (innings === 0 ? 'First innings' : 'Second innings') + ' · ' + battingTeam
+        const total = score && score.runs + '/' + score.wickets + ' in ' + score.overs + ' overs · ' + score.extras + ' extras'
         return <div className="scorecard-innings" key={innings}>
-          <h3>{innings === 0 ? 'First innings' : 'Second innings'} · {battingTeam}</h3>
+          <div className="score-share-heading">
+            <h3>{title}</h3>
+            {score && <CopyScoreImage label={'Copy ' + (innings === 0 ? 'first' : 'second') + ' innings as image'}
+              filename={'turf-cricket-innings-' + (innings + 1) + '.png'}
+              image={{ title, match: matchTitle, highlight: total!, notes: matchNotes, tables: [
+                { title: battingTeam + ' batting', columns: battingColumns, rows: score.batting.map(batter =>
+                  [batter.name + '\n' + battingStatus(batter), ...battingCells(batter)]) },
+                { title: bowlingTeam + ' bowling', columns: bowlingColumns, rows: score.bowling.map(bowler =>
+                  [bowler.name, ...bowlingCells(bowler)]) },
+              ] }} />}
+          </div>
           {!score ? <p className="muted">{innings > match.innings ? 'Innings not played.' : 'No deliveries recorded.'}</p> : <>
-            <p><strong>{score.runs}/{score.wickets}</strong> in {score.overs} overs · {score.extras} extras</p>
+            <p>{total}</p>
             <div className="scorecard-table" tabIndex={0} role="region" aria-label={battingTeam + ' batting figures'}>
               <table>
                 <caption>{battingTeam} batting</caption>
-                <thead><tr>
-                  <th scope="col">Batter</th><th scope="col">R</th><th scope="col">B</th>
-                  <th scope="col">4s</th><th scope="col">6s</th><th scope="col">SR</th>
-                </tr></thead>
+                <thead><tr>{battingColumns.map(column => <th scope="col" key={column}>{column}</th>)}</tr></thead>
                 <tbody>{score.batting.map(batter => <tr key={batter.name}>
-                  <th scope="row">{batter.name}<small>{batter.dismissal?.kind === 'run-out' ? 'Run-out · ' + batter.dismissal.fielder
-                    : batter.dismissedBy ? 'Out · ' + batter.dismissedBy : batter.batted ? 'Not out' : 'Did not bat'}</small></th>
-                  <td>{batter.batted ? batter.runs : '—'}</td>
-                  <td>{batter.batted ? batter.balls : '—'}</td>
-                  <td>{batter.batted ? batter.fours : '—'}</td>
-                  <td>{batter.batted ? batter.sixes : '—'}</td>
-                  <td>{batter.balls ? (batter.runs * 100 / batter.balls).toFixed(1) : '—'}</td>
+                  <th scope="row">{batter.name}<small>{battingStatus(batter)}</small></th>
+                  {battingCells(batter).map((cell, index) => <td key={index}>{cell}</td>)}
                 </tr>)}</tbody>
               </table>
             </div>
             <div className="scorecard-table" tabIndex={0} role="region" aria-label={bowlingTeam + ' bowling figures'}>
               <table>
                 <caption>{bowlingTeam} bowling</caption>
-                <thead><tr>
-                  <th scope="col">Bowler</th><th scope="col">O</th><th scope="col">M</th><th scope="col">R</th>
-                  <th scope="col">W</th><th scope="col">WD</th><th scope="col">NB</th><th scope="col">Econ</th>
-                </tr></thead>
+                <thead><tr>{bowlingColumns.map(column => <th scope="col" key={column}>{column}</th>)}</tr></thead>
                 <tbody>{score.bowling.map(bowler => <tr key={bowler.name}>
                   <th scope="row">{bowler.name}</th>
-                  <td>{formatOvers(bowler.balls)}</td><td>{bowler.maidens}</td><td>{bowler.runs}</td>
-                  <td>{bowler.wickets}</td><td>{bowler.wides}</td><td>{bowler.noBalls}</td>
-                  <td>{bowler.balls ? (bowler.runs * 6 / bowler.balls).toFixed(1) : '—'}</td>
+                  {bowlingCells(bowler).map((cell, index) => <td key={index}>{cell}</td>)}
                 </tr>)}</tbody>
               </table>
             </div>
@@ -89,26 +125,23 @@ export default function MatchScorecard({ match }: { match: Match }) {
     </details>
   </section>
   <section aria-label="Impact Points">
-    <h2>Impact Points</h2>
+    <div className="score-share-heading">
+      <h2>Impact Points</h2>
+      {impactLeader && <CopyScoreImage label="Copy Impact Points as image" filename="turf-cricket-impact.png"
+        image={{ title: 'Impact Points', match: matchTitle, highlight: impactLeader,
+          notes: [impactRate, ...impactNotes, ...(impact?.unspecifiedWickets ? ['Fielding points include recorded fielding only.'] : [])],
+          tables: [{ title: 'Match impact by player', columns: impactColumns, rows: impactRows }] }} />}
+    </div>
     {!impact ? <p className="muted">Impact Points appear after the first legal ball.</p> : <>
-      {impact.match.leaders.length > 0 && <p className="settings-success"><strong>
-        {match.finishedAt ? 'Player of the Match' : match.stoppedAt ? 'Impact leader at stoppage' : 'Current match leader'} · {impact.match.leaders.join(', ')}
-        {' (' + formatPoints(impact.match.players[0].total) + ')'}
-      </strong></p>}
-      <p className="muted">{!final && 'Provisional · '}
-        {impact.runsPerBall.toFixed(2)} runs per legal ball · {impact.wicketValue.toFixed(2)} points per wicket
-      </p>
-      {impact.innings.map((item, index) => item && item.leaders.length > 0 && <p key={index}>
-        Innings {index + 1} Impact {item.leaders.length === 1 ? 'Player' : 'Players'} · <strong>{item.leaders.join(', ')}</strong>
-        {' (' + formatPoints(item.players[0].total) + ')'}
-      </p>)}
+      {impactLeader && <p className="settings-success"><strong>{impactLeader}</strong></p>}
+      <p className="muted">{impactRate}</p>
+      {impactNotes.map(note => <p key={note}>{note}</p>)}
       <div className="scorecard-table" tabIndex={0} role="region" aria-label="Player impact rankings">
         <table>
           <caption>Match impact by player</caption>
-          <thead><tr><th scope="col">Player</th><th scope="col">Bat</th><th scope="col">Bowl</th><th scope="col">Field</th><th scope="col">Total</th></tr></thead>
-          <tbody>{impact.match.players.map(item => <tr key={item.name}>
-            <th scope="row">{item.name}</th><td>{formatPoints(item.batting)}</td><td>{formatPoints(item.bowling)}</td>
-            <td>{formatPoints(item.fielding)}</td><td><strong>{formatPoints(item.total)}</strong></td>
+          <thead><tr>{impactColumns.map(column => <th scope="col" key={column}>{column}</th>)}</tr></thead>
+          <tbody>{impactRows.map(([name, ...points]) => <tr key={name}>
+            <th scope="row">{name}</th>{points.map((cell, index) => <td key={index}>{index === 3 ? <strong>{cell}</strong> : cell}</td>)}
           </tr>)}</tbody>
         </table>
       </div>
