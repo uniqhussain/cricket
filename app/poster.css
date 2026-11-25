@@ -17,10 +17,10 @@
 }
 .cricket-poster-compact {
   --poster-text: 26px;
-  --poster-row: 7px;
-  --poster-gap: 14px;
-  --poster-inset: 22px;
-  padding-top: 30px;
+  --poster-row: 5px;
+  --poster-gap: 12px;
+  --poster-inset: 18px;
+  padding-top: 24px;
 }
 .cricket-poster-section:not(.cricket-poster-compact) {
   --poster-text: 31px;
