@@ -67,7 +67,7 @@ export default function MatchScorecard({ match }: { match: Match }) {
         return <div className="scorecard-innings" key={innings}>
           <div className="score-share-heading">
             <h3>{title}</h3>
-            {score && !match.finishedAt && <CopyScoreImage label={'Copy ' + (innings === 0 ? 'first' : 'second') + ' innings as image'}
+            {score && <CopyScoreImage label={'Copy ' + (innings === 0 ? 'first' : 'second') + ' innings as image'}
               filename={'turf-cricket-innings-' + (innings + 1) + '.png'}
               image={{ title, match: matchTitle, highlight: total!, notes: matchNotes, tables: [
                 { title: battingTeam + ' batting', columns: battingColumns, rows: score.batting.map(batter =>
@@ -106,7 +106,7 @@ export default function MatchScorecard({ match }: { match: Match }) {
   <section aria-label="Impact Points">
     <div className="score-share-heading">
       <h2>Impact Points</h2>
-      {impactLeader && !match.finishedAt && <CopyScoreImage label="Copy Impact Points as image" filename="turf-cricket-impact.png"
+      {impactLeader && <CopyScoreImage label="Copy Impact Points as image" filename="turf-cricket-impact.png"
         image={{ title: 'Impact Points', match: matchTitle, highlight: impactLeader,
           notes: [impactRate, ...impactNotes, ...(impact?.unspecifiedWickets ? ['Fielding points include recorded fielding only.'] : [])],
           tables: [{ title: 'Match impact by player', columns: impactColumns, rows: impactRows }] }} />}
