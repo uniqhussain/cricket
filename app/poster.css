@@ -22,6 +22,12 @@
   --poster-inset: 22px;
   padding-top: 30px;
 }
+.cricket-poster-section:not(.cricket-poster-compact) {
+  --poster-text: 31px;
+  --poster-row: 14px;
+  --poster-gap: 32px;
+  padding-top: 64px;
+}
 .poster-stadium { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; }
 .cricket-poster::before {
   content: '';
@@ -108,6 +114,7 @@
 .poster-stat tbody th, .poster-stat tbody td { border-top: 1px solid #a9bed0; }
 .poster-stat tbody td { border-left: 1px solid #b8ccda; }
 .poster-stat tbody th { font-weight: 800; }
+.poster-stat tbody small { display: block; margin-top: 3px; color: #315268; font-size: .74em; font-weight: 650; }
 .poster-impact-title { display: flex; align-items: center; justify-content: center; gap: 15px; color: #ffe37d; text-transform: uppercase; }
 .poster-award {
   display: grid;

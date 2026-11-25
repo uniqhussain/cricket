@@ -17,7 +17,7 @@ function StatTable({ table, hideTitle }: { table: PosterTable; hideTitle?: boole
       <table aria-label={table.title}>
         <thead><tr>{table.columns.map(column => <th scope="col" key={column}>{column}</th>)}</tr></thead>
         <tbody>{table.rows.map(([name, ...values]) => <tr key={name}>
-          <th scope="row">{name}</th>
+          <th scope="row">{name}{table.rowNotes?.[name] && <small>{table.rowNotes[name]}</small>}</th>
           {values.map((value, index) => <td className={table.id === 'impact'
             ? [index === values.length - 1 && 'poster-total', value.startsWith('+') && 'poster-positive',
               value.startsWith('−') && 'poster-negative'].filter(Boolean).join(' ') : undefined} key={index}>{value}</td>)}
@@ -31,7 +31,8 @@ export default function ScorecardPoster({ data, sections, compact, page, pageCou
   data: PosterData; sections: PosterSection[]; compact?: boolean; page?: number; pageCount?: number
 }) {
   const title = data.teams.join(' vs ')
-  return <article aria-label={title + ' match scorecard'} className={'cricket-poster' + (compact ? ' cricket-poster-compact' : '')}>
+  return <article aria-label={title + ' ' + (data.label ?? 'match scorecard')}
+    className={'cricket-poster' + (data.label ? ' cricket-poster-section' : '') + (compact ? ' cricket-poster-compact' : '')}>
     {/* Keep the local image in the rendered tree so it is embedded in the PNG. */}
     {/* eslint-disable-next-line @next/next/no-img-element */}
     <img className="poster-stadium" src={stadiumBackground} alt="" width={posterWidth} height={posterHeight} />
@@ -40,7 +41,7 @@ export default function ScorecardPoster({ data, sections, compact, page, pageCou
         <div className="poster-brand">Turf Cricket</div>
         <h1>{data.teams[0]} <span>vs</span> {data.teams[1]}</h1>
         {data.metadata.map(item => <p key={item}>{item}</p>)}
-        <div className="poster-label">Match scorecard</div>
+        <div className="poster-label">{data.label ?? 'Match scorecard'}</div>
         <div className="poster-result">{data.result}</div>
       </header>
       <div className="poster-cards">

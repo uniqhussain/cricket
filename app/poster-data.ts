@@ -29,6 +29,7 @@ export type PosterTable = {
   title: string
   columns: string[]
   rows: string[][]
+  rowNotes?: Record<string, string>
   continued?: boolean
 }
 export type PosterSection = {
@@ -38,7 +39,8 @@ export type PosterSection = {
   note?: string
   tables: PosterTable[]
 }
-type PosterPage = { teams: [string, string]; metadata: string[]; result: string; sections: PosterSection[] }
+export type PosterSelection = 0 | 1 | 'impact'
+type PosterPage = { teams: [string, string]; metadata: string[]; result: string; sections: PosterSection[]; label?: string }
 export type PosterData = PosterPage & { text: string }
 
 function verifyInnings(score: InningsScore, deliveries: Delivery[]) {
@@ -101,18 +103,19 @@ function makeText({ teams, metadata, result, sections }: PosterPage) {
   ])].join('\n')
 }
 
-export function buildPosterData(match: Match, source?: MatchPosterMetadata): PosterData {
-  if (!match.finishedAt || match.stoppedAt || match.innings !== 1) throw new Error('Finish both innings to generate a match poster.')
+export function buildPosterData(match: Match, source?: MatchPosterMetadata, selection?: PosterSelection): PosterData {
+  const finished = Boolean(match.finishedAt && !match.stoppedAt && match.innings === 1)
+  if (!finished && selection === undefined) throw new Error('Finish both innings to generate a match poster.')
   const scores = ([0, 1] as const).map(index => {
     try {
       const score = replay(rulesFor(match, index), match.games[index])
-      verifyInnings(score, match.games[index])
+      if (finished) verifyInnings(score, match.games[index])
       return score
     } catch (error) {
       throw new Error('Innings ' + (index + 1) + ' could not be verified. ' + (error instanceof Error ? error.message : 'Check the saved deliveries.'))
     }
   })
-  const result = resultFor(match, scores[0], scores[1])
+  const result = finished ? resultFor(match, scores[0], scores[1]) : match.stoppedAt ? 'Match stopped' : 'Match in progress'
   const date = new Date(match.startedAt ?? source?.createdAt ?? NaN)
   const dateLabel = Number.isFinite(date.getTime())
     ? date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : ''
@@ -130,7 +133,8 @@ export function buildPosterData(match: Match, source?: MatchPosterMetadata): Pos
       innings: { battingTeam, score: score.runs + '/' + score.wickets, overs: score.overs, extras: score.extras },
       tables: [
         { id: 'batting', title: battingTeam + ' batting', columns: battingColumns,
-          rows: score.batting.map(batter => [batter.name, ...battingCells(batter)]) },
+          rows: score.batting.map(batter => [batter.name, ...battingCells(batter)]),
+          rowNotes: selection === index ? Object.fromEntries(score.batting.map(batter => [batter.name, battingStatus(batter)])) : undefined },
         { id: 'bowling', title: bowlingTeam + ' bowling', columns: bowlingColumns,
           rows: score.bowling.map(bowler => [bowler.name, ...bowlingCells(bowler)]) },
       ],
@@ -145,8 +149,10 @@ export function buildPosterData(match: Match, source?: MatchPosterMetadata): Pos
       return [name, batter ? batter.runs + ' runs · ' + batter.balls + ' balls' : 'Did not bat',
         bowler ? bowler.wickets + '/' + bowler.runs + ' · ' + formatOvers(bowler.balls) + ' overs' : 'Did not bowl']
     })
+    const title = finished ? (leaders.length === 1 ? 'Player of the Match' : 'Joint Players of the Match')
+      : match.stoppedAt ? 'Impact leader at stoppage' : 'Current match leader'
     const award = {
-      label: leaders.length === 1 ? 'Player of the Match · ' + leaders[0] : 'Joint Players of the Match',
+      label: leaders.length === 1 ? title + ' · ' + leaders[0] : title,
       points: formatPoints(impact.match.players[0].total),
       baselines: impact.runsPerBall.toFixed(2) + ' runs per legal ball · ' + impact.wicketValue.toFixed(2) + ' points per wicket',
       performance: leaders.length === 1 ? ['Batting ' + performances[0][1], 'Bowling ' + performances[0][2]] : undefined,
@@ -155,7 +161,7 @@ export function buildPosterData(match: Match, source?: MatchPosterMetadata): Pos
       title: 'Impact Points', award,
       note: impact.unspecifiedWickets ? 'Fielding points use recorded dismissal details.' : undefined,
       tables: [
-        ...(leaders.length > 1 ? [{ id: 'awards' as const, title: 'Player of the Match performance',
+        ...(leaders.length > 1 ? [{ id: 'awards' as const, title: 'Impact leaders’ performance',
           columns: ['Player', 'Batting', 'Bowling'], rows: performances }] : []),
         { id: 'impact', title: 'Match impact by player', columns: impactColumns,
           rows: impact.match.players.map(item => [item.name, ...[item.batting, item.bowling, item.fielding, item.total].map(formatPoints)]) },
@@ -164,6 +170,9 @@ export function buildPosterData(match: Match, source?: MatchPosterMetadata): Pos
   } else {
     sections.push({ title: 'Impact Points', note: 'Impact Points require at least one legal ball.', tables: [] })
   }
-  const data: PosterPage = { teams: [teamLabel(match, 0), teamLabel(match, 1)], metadata, result, sections }
+  if (typeof selection === 'number' && !match.games[selection].length) throw new Error('No deliveries were recorded for this innings.')
+  const selectedSections = selection === undefined ? sections : [selection === 'impact' ? sections[2] : sections[selection]]
+  const label = selection === undefined ? undefined : selection === 'impact' ? 'Match impact' : 'Innings scorecard'
+  const data: PosterPage = { teams: [teamLabel(match, 0), teamLabel(match, 1)], metadata, result, sections: selectedSections, label }
   return { ...data, text: makeText(data) }
 }

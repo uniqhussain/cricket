@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { battingSide, oppositeSide, rulesFor, teamLabel, tossSummary, type Match } from './match'
+import { battingSide, oppositeSide, rulesFor, teamLabel, tossSummary, type Match, type MatchPosterMetadata } from './match'
 import { formatOvers, replay } from './scoring'
 import { formatPoints, impactPoints } from './impact'
 import CopyScoreImage from './copy-score-image'
@@ -32,14 +32,12 @@ export function LiveFigures({ score, bowler }: { score: ReturnType<typeof replay
   </section>
 }
 
-export default function MatchScorecard({ match }: { match: Match }) {
+export default function MatchScorecard({ match, metadata }: { match: Match; metadata?: MatchPosterMetadata }) {
   const inningsScores = useMemo(() => ([0, 1] as const).map(innings => (
     match.games[innings].length ? replay(rulesFor(match, innings), match.games[innings]) : null
   )), [match])
   const final = Boolean(match.finishedAt || match.stoppedAt)
   const impact = useMemo(() => impactPoints(inningsScores), [inningsScores])
-  const matchTitle = teamLabel(match, 0) + ' vs ' + teamLabel(match, 1)
-  const matchNotes = [match.ground?.name, tossSummary(match)].filter((note): note is string => Boolean(note))
   const leaderTitle = match.finishedAt ? 'Player of the Match' : match.stoppedAt ? 'Impact leader at stoppage' : 'Current match leader'
   const impactLeader = impact?.match.players[0]
     ? leaderTitle + ' · ' + impact.match.leaders.join(', ') + ' (' + formatPoints(impact.match.players[0].total) + ')'
@@ -68,13 +66,7 @@ export default function MatchScorecard({ match }: { match: Match }) {
           <div className="score-share-heading">
             <h3>{title}</h3>
             {score && <CopyScoreImage label={'Copy ' + (innings === 0 ? 'first' : 'second') + ' innings as image'}
-              filename={'turf-cricket-innings-' + (innings + 1) + '.png'}
-              image={{ title, match: matchTitle, highlight: total!, notes: matchNotes, tables: [
-                { title: battingTeam + ' batting', columns: battingColumns, rows: score.batting.map(batter =>
-                  [batter.name + '\n' + battingStatus(batter), ...battingCells(batter)]) },
-                { title: bowlingTeam + ' bowling', columns: bowlingColumns, rows: score.bowling.map(bowler =>
-                  [bowler.name, ...bowlingCells(bowler)]) },
-              ] }} />}
+              filename={'turf-cricket-innings-' + (innings + 1)} match={match} metadata={metadata} selection={innings} />}
           </div>
           {!score ? <p className="muted">{innings > match.innings ? 'Innings not played.' : 'No deliveries recorded.'}</p> : <>
             <p>{total}</p>
@@ -106,10 +98,8 @@ export default function MatchScorecard({ match }: { match: Match }) {
   <section aria-label="Impact Points">
     <div className="score-share-heading">
       <h2>Impact Points</h2>
-      {impactLeader && <CopyScoreImage label="Copy Impact Points as image" filename="turf-cricket-impact.png"
-        image={{ title: 'Impact Points', match: matchTitle, highlight: impactLeader,
-          notes: [impactRate, ...impactNotes, ...(impact?.unspecifiedWickets ? ['Fielding points include recorded fielding only.'] : [])],
-          tables: [{ title: 'Match impact by player', columns: impactColumns, rows: impactRows }] }} />}
+      {impactLeader && <CopyScoreImage label="Copy Impact Points as image" filename="turf-cricket-impact"
+        match={match} metadata={metadata} selection="impact" />}
     </div>
     {!impact ? <p className="muted">Impact Points appear after the first legal ball.</p> : <>
       {impactLeader && <p className="settings-success"><strong>{impactLeader}</strong></p>}

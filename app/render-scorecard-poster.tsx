@@ -52,7 +52,7 @@ function paginate(sections: PosterSection[], fits: (page: PosterSection[]) => bo
   return pages
 }
 
-export async function renderPoster(data: PosterData): Promise<File[]> {
+export async function renderPoster(data: PosterData, filename = 'turf-cricket-scorecard'): Promise<File[]> {
   const background = new Image()
   background.src = stadiumBackground
   await Promise.all([background.decode(), document.fonts.load('800 28px "Geist Variable"')])
@@ -85,7 +85,7 @@ export async function renderPoster(data: PosterData): Promise<File[]> {
       })
       if (!png?.size) throw new Error('The PNG could not be created.')
       const suffix = pages.length > 1 ? '-page-' + (index + 1) : ''
-      files.push(new File([png], 'turf-cricket-scorecard' + suffix + '.png', { type: 'image/png' }))
+      files.push(new File([png], filename + suffix + '.png', { type: 'image/png' }))
     }
     return files
   } finally {

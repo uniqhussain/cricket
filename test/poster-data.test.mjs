@@ -53,3 +53,24 @@ test('poster validates that an innings is complete without editing saved data', 
   assert.throws(() => buildPosterData({ ...fixture, stoppedAt: fixture.finishedAt }), /Finish both innings/)
   assert.equal(JSON.stringify(incomplete), before)
 })
+
+test('each image copy uses its own poster section and the saved batting order', () => {
+  const first = buildPosterData(fixture, undefined, 0)
+  assert.deepEqual(first.sections.map(section => section.title), ['First innings'])
+  assert.equal(first.sections[0].innings.battingTeam, 'Navy')
+  assert.equal(first.label, 'Innings scorecard')
+  const second = buildPosterData(fixture, undefined, 1)
+  assert.deepEqual(second.sections.map(section => section.title), ['Second innings'])
+  assert.equal(second.sections[0].tables[0].rowNotes.Arun, 'Run-out · Emil')
+  const awards = buildPosterData(fixture, undefined, 'impact')
+  assert.deepEqual(awards.sections.map(section => section.title), ['Impact Points'])
+  assert.match(awards.sections[0].award.label, /Player.*of the Match/)
+  assert.equal(awards.label, 'Match impact')
+})
+
+test('the image copy reflects live scores without awarding Player of the Match early', () => {
+  const live = { ...fixture, innings: 0, finishedAt: undefined, games: [[fixture.games[0][2]], []] }
+  assert.equal(buildPosterData(live, undefined, 0).result, 'Match in progress')
+  assert.match(buildPosterData(live, undefined, 'impact').sections[0].award.label, /Current match leader/)
+  assert.throws(() => buildPosterData(live, undefined, 1), /No deliveries/)
+})
