@@ -397,10 +397,10 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}
       </section>}
-      <OverTimeline key={shared?.id ?? startedAt} match={match} currentComplete={score.complete} revision={shared?.revision} busy={busy}
+      <OverTimeline key={'overs:' + (shared?.id ?? startedAt)} match={match} currentComplete={score.complete} revision={shared?.revision} busy={busy}
         onCorrect={shared && user?.admin && canScore ? updateScore : undefined} />
       {!finishedAt && !stoppedAt && <LiveFigures score={score} bowler={activeBowler} />}
-      <MatchScorecard key={shared?.id ?? startedAt} match={match} />
+      <MatchScorecard key={'scorecard:' + (shared?.id ?? startedAt)} match={match} />
       {shared && <section><h2>Score updates</h2>
         {shared.audit.length ? <ol>{shared.audit.map(entry => <li key={entry.id}>
           {entry.details.actorName ?? entry.actor_id} · {entry.details.toss
