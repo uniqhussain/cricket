@@ -3,28 +3,7 @@ import { battingSide, oppositeSide, rulesFor, teamLabel, tossSummary, type Match
 import { formatOvers, replay } from './scoring'
 import { formatPoints, impactPoints } from './impact'
 import CopyScoreImage from './copy-score-image'
-
-type InningsScore = ReturnType<typeof replay>
-const battingColumns = ['Batter', 'R', 'B', '4s', '6s', 'SR']
-const bowlingColumns = ['Bowler', 'O', 'M', 'R', 'W', 'WD', 'NB', 'Econ']
-const impactColumns = ['Player', 'Bat', 'Bowl', 'Field', 'Total']
-
-function battingStatus(batter: InningsScore['batting'][number]) {
-  if (batter.dismissal?.kind === 'run-out') return 'Run-out · ' + batter.dismissal.fielder
-  return batter.dismissedBy ? 'Out · ' + batter.dismissedBy : batter.batted ? 'Not out' : 'Did not bat'
-}
-
-function battingCells(batter: InningsScore['batting'][number]) {
-  return [
-    ...[batter.runs, batter.balls, batter.fours, batter.sixes].map(value => batter.batted ? String(value) : '—'),
-    batter.balls ? (batter.runs * 100 / batter.balls).toFixed(1) : '—',
-  ]
-}
-
-function bowlingCells(bowler: InningsScore['bowling'][number]) {
-  return [formatOvers(bowler.balls), ...[bowler.maidens, bowler.runs, bowler.wickets, bowler.wides, bowler.noBalls].map(String),
-    bowler.balls ? (bowler.runs * 6 / bowler.balls).toFixed(1) : '—']
-}
+import { battingCells, battingColumns, battingStatus, bowlingCells, bowlingColumns, impactColumns } from './poster-data'
 
 export function LiveFigures({ score, bowler }: { score: ReturnType<typeof replay>; bowler: string }) {
   const batters = score.batting.filter(batter => [score.striker, score.partner].includes(batter.name))
@@ -88,7 +67,7 @@ export default function MatchScorecard({ match }: { match: Match }) {
         return <div className="scorecard-innings" key={innings}>
           <div className="score-share-heading">
             <h3>{title}</h3>
-            {score && <CopyScoreImage label={'Copy ' + (innings === 0 ? 'first' : 'second') + ' innings as image'}
+            {score && !match.finishedAt && <CopyScoreImage label={'Copy ' + (innings === 0 ? 'first' : 'second') + ' innings as image'}
               filename={'turf-cricket-innings-' + (innings + 1) + '.png'}
               image={{ title, match: matchTitle, highlight: total!, notes: matchNotes, tables: [
                 { title: battingTeam + ' batting', columns: battingColumns, rows: score.batting.map(batter =>
@@ -127,7 +106,7 @@ export default function MatchScorecard({ match }: { match: Match }) {
   <section aria-label="Impact Points">
     <div className="score-share-heading">
       <h2>Impact Points</h2>
-      {impactLeader && <CopyScoreImage label="Copy Impact Points as image" filename="turf-cricket-impact.png"
+      {impactLeader && !match.finishedAt && <CopyScoreImage label="Copy Impact Points as image" filename="turf-cricket-impact.png"
         image={{ title: 'Impact Points', match: matchTitle, highlight: impactLeader,
           notes: [impactRate, ...impactNotes, ...(impact?.unspecifiedWickets ? ['Fielding points include recorded fielding only.'] : [])],
           tables: [{ title: 'Match impact by player', columns: impactColumns, rows: impactRows }] }} />}

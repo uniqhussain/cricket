@@ -6,6 +6,7 @@ import GroundSettings from './ground-settings'
 import SeriesPanel, { MatchList } from './series-panel'
 import type { MatchListEntry, Series } from './series'
 import MatchScorecard, { LiveFigures } from './match-scorecard'
+import PosterExport from './poster-export'
 import OverTimeline from './over-timeline'
 import { WicketEntry } from './dismissal-fields'
 import MatchToss from './match-toss'
@@ -348,10 +349,12 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         <p className="score">{score.runs}/{score.wickets}</p>
         <p>{score.overs} / {rules.overs} overs · {score.extras} extras</p>
         {rules.target !== undefined && <p>Target {rules.target} · {Math.max(0, rules.target - score.runs)} needed from {rules.overs * 6 - score.legal} balls</p>}
-        {score.complete && match.innings === 1 && <strong>{score.runs >= rules.target!
+        {!finishedAt && score.complete && match.innings === 1 && <strong>{score.runs >= rules.target!
           ? teamLabel(match, battingSide(match, 1)) + ' wins'
           : score.runs === rules.target! - 1 ? 'Match tied' : teamLabel(match, battingSide(match, 0)) + ' wins'}</strong>}
       </section>
+      {finishedAt && !stoppedAt && <PosterExport key={(shared?.id ?? startedAt) + ':' + (shared?.revision ?? finishedAt)}
+        match={match} metadata={shared?.poster_metadata} />}
       {score.pendingPair && !stoppedAt && (canScore
         ? <BattingPairPicker key={match.innings + ':' + deliveries.length} {...score.pendingPair} busy={busy}
             onSave={pair => {

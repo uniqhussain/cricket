@@ -1,0 +1,161 @@
+.cricket-poster {
+  --poster-text: 28px;
+  --poster-row: 10px;
+  --poster-gap: 20px;
+  --poster-inset: 28px;
+  position: relative;
+  width: 1080px;
+  height: 1920px;
+  padding: 40px 46px 55px;
+  overflow: hidden;
+  isolation: isolate;
+  background: #061728;
+  color: #f4fbff;
+  font: 650 var(--poster-text)/1.2 'Geist Variable', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.cricket-poster-compact {
+  --poster-text: 26px;
+  --poster-row: 7px;
+  --poster-gap: 14px;
+  --poster-inset: 22px;
+  padding-top: 30px;
+}
+.poster-stadium { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; }
+.cricket-poster::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(0, 19, 39, .18), rgba(0, 22, 33, .30) 70%, rgba(2, 33, 20, .12));
+}
+.poster-content { display: grid; gap: var(--poster-gap); }
+.poster-header { display: grid; justify-items: center; gap: 8px; color: inherit; text-align: center; }
+.poster-brand {
+  color: #f5fbff;
+  font-size: 76px;
+  font-weight: 950;
+  font-style: italic;
+  letter-spacing: -.055em;
+  text-transform: uppercase;
+  text-shadow: 0 5px 18px #031426;
+}
+.poster-label {
+  padding: 6px 30px;
+  border: 2px solid #99f3ae;
+  border-radius: 40px;
+  background: #092739;
+  color: #e9fff5;
+  font-size: 22px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.poster-header h1 { margin: 5px 0 0; font-size: 48px; font-weight: 900; letter-spacing: -.04em; }
+.poster-header h1 span { color: #ffdc63; font-size: .7em; text-transform: uppercase; }
+.poster-header p { margin: 0; font-size: 24px; color: #d7f0f9; }
+.poster-result {
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 10px 30px;
+  border: 2px solid #ffdb72;
+  border-radius: 16px;
+  background: linear-gradient(100deg, #1f221b, #152425);
+  color: #ffe37d;
+  font-size: 38px;
+  font-weight: 900;
+}
+.poster-cards { display: grid; gap: var(--poster-gap); }
+.poster-card {
+  display: grid;
+  gap: calc(var(--poster-gap) * .65);
+  min-width: 0;
+  padding: var(--poster-inset);
+  border: 2px solid #82d5f3;
+  border-bottom-color: #c9f49e;
+  border-radius: 30px;
+  background: linear-gradient(145deg, #082e49 0%, #061b30 56%, #062b2c 100%);
+  box-shadow: 0 7px 22px rgba(1, 15, 28, .65), inset 0 0 26px rgba(94, 171, 231, .14);
+}
+.poster-innings { display: grid; grid-template-columns: 1fr auto auto; gap: 20px; align-items: center; }
+.poster-kicker { color: #ffdb61; font-size: 25px; font-weight: 900; letter-spacing: .067em; text-transform: uppercase; }
+.poster-team h2, .poster-impact-title { margin: 0; font-size: 34px; font-weight: 880; }
+.poster-score {
+  display: grid;
+  min-width: 218px;
+  text-align: center;
+  padding: 4px 18px 7px;
+  border: 2px solid #dcffae;
+  border-radius: 15px;
+  background: linear-gradient(155deg, #e1ffac, #a1f449 54%, #6ed239);
+  color: #081c16;
+  line-height: 1;
+}
+.poster-score strong { font-size: 56px; font-weight: 950; letter-spacing: -.055em; }
+.poster-score span { font-size: 24px; font-weight: 800; }
+.poster-extras { color: #d4eaf1; font-size: 24px; }
+.poster-extras strong { color: #fff; }
+.poster-stat h3 { margin: 0 0 6px; font-size: var(--poster-text); }
+.poster-rows { overflow: hidden; border: 2px solid #9ad8ef; border-radius: 15px; }
+.poster-stat table { width: 100%; table-layout: fixed; border-spacing: 0; text-align: center; }
+.poster-stat thead { background: linear-gradient(#125a83, #073254); }
+.poster-stat th, .poster-stat td { padding: var(--poster-row) 5px; }
+.poster-stat th:first-child { width: 37%; padding-left: 16px; text-align: left; }
+.poster-stat-bowling th:first-child { width: 33%; }
+.poster-stat-awards th:first-child { width: 37%; }
+.poster-stat tbody tr { color: #0b2137; background: #edf6fb; }
+.poster-stat tbody tr:nth-child(even) { background: #dbeaf4; }
+.poster-stat tbody th, .poster-stat tbody td { border-top: 1px solid #a9bed0; }
+.poster-stat tbody td { border-left: 1px solid #b8ccda; }
+.poster-stat tbody th { font-weight: 800; }
+.poster-impact-title { display: flex; align-items: center; justify-content: center; gap: 15px; color: #ffe37d; text-transform: uppercase; }
+.poster-award {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 18px;
+  border: 2px solid #ffe37d;
+  border-radius: 17px;
+  background: linear-gradient(120deg, #302814, #17252a);
+}
+.poster-award strong { color: #ffe37d; font-size: 31px; }
+.poster-award p, .poster-note { margin: 4px 0 0; color: #d5e9f3; font-size: 22px; }
+.poster-award b { padding: 8px 17px; border-radius: 9px; background: #ffdb63; color: #1a2119; font-size: 34px; }
+.poster-stat .poster-positive { color: #135b2e; }
+.poster-stat .poster-negative { color: #891b31; }
+.poster-stat .poster-total { font-weight: 900; }
+.poster-stat .poster-total.poster-positive { background: #b0ef77; color: #103316; }
+.poster-stat .poster-total.poster-negative { background: #ffc2c9; color: #671325; }
+.poster-footer {
+  position: absolute;
+  inset: auto 0 19px;
+  color: #fff;
+  font-size: 21px;
+  text-align: center;
+  text-shadow: 0 2px 6px #041419;
+}
+
+.poster-render-stage { position: fixed; left: -12000px; top: 0; pointer-events: none; }
+.poster-dialog {
+  width: min(760px, calc(100% - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 16px;
+  border: 1px solid #44665b;
+  border-radius: 16px;
+  background: #10211e;
+  color: #f0f8f4;
+  overflow-x: hidden;
+}
+.poster-dialog::backdrop { background: rgba(0, 10, 18, .8); }
+.poster-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.poster-dialog-header h2 { margin: 0; color: #f0f8f4; font-size: 1.25rem; }
+.poster-dialog-close { background: transparent; color: #c6e4d7; }
+.poster-dialog-toolbar { align-items: center; }
+.poster-download {
+  display: inline-grid; place-items: center; min-height: 46px; padding: 10px; border: 1px solid #52685f;
+  border-radius: 8px; color: #102319; background: #a3efbe; font-weight: 700; text-decoration: none;
+}
+.poster-preview { display: block; width: min(100%, 560px); height: auto; margin: 14px auto 0; border-radius: 10px; }
+.poster-pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.poster-text-fallback { width: 100%; min-height: 9em; color: #f0f8f4; background: #081611; }

@@ -70,7 +70,8 @@ export type AuditEntry = {
   details: { operation?: string; actorName?: string; innings?: number; over?: number; delivery?: number; toss?: Toss; pair?: BattingPair }
   created_at: string
 }
-export type SharedMatch = { id: string; cricket_state: Match; revision: number; audit: AuditEntry[]; series_id?: string | null; series_ended_at?: string | null }
+export type MatchPosterMetadata = { createdAt: string; series?: { name: string; number?: number; matchNumber?: number } }
+export type SharedMatch = { id: string; cricket_state: Match; revision: number; audit: AuditEntry[]; series_id?: string | null; series_ended_at?: string | null; poster_metadata?: MatchPosterMetadata }
 
 export function rulesFor(match: Match, innings: 0 | 1): Rules {
   const side = battingSide(match, innings)

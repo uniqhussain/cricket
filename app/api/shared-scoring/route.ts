@@ -1,5 +1,5 @@
 import { signedInUser } from '../photo-session/auth'
-import { applyOperation, canUmpire, frozenOvers, matchWinner, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
+import { applyOperation, canUmpire, frozenOvers, matchWinner, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type MatchPosterMetadata, type RosterPlayer, type ScoreOperation } from '../../match'
 import type { Series } from '../../series'
 import { loginIdentifier, minPasswordLength, playerUsername } from '../../player-login'
 import { validatePlayerDetails, type PlayerDetails, type Profile } from '../../profile'
@@ -7,7 +7,8 @@ import { ownsPhotoLink } from '../player-photos/photo-link'
 
 type MatchRow = {
   id: string; name: string; status: string; cricket_state: Match; revision: number; updated_at: string
-  series_id: string | null; cricket_series?: { ended_at: string | null } | null
+  created_at: string; series_id: string | null
+  cricket_series?: { name: string; started_at: string; ended_at: string | null } | null
 }
 const profileFields = 'user_id,name,nickname,details'
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
@@ -82,7 +83,7 @@ async function loadMatch(id: string, user: { id: string; admin: boolean }) {
     const memberships = await db<RosterPlayer[]>('match_players?select=user_id&match_id=eq.' + id + '&user_id=eq.' + user.id)
     if (!memberships.length) throw new RequestError('Match not found.', 404)
   }
-  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision,updated_at,series_id,cricket_series(ended_at)&cricket_state=not.is.null&archived_at=is.null&id=eq.' + id)
+  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision,created_at,updated_at,series_id,cricket_series(name,started_at,ended_at)&cricket_state=not.is.null&archived_at=is.null&id=eq.' + id)
   if (!match) throw new RequestError('Match not found.', 404)
   if (match.status === 'complete' && !match.cricket_state.finishedAt) {
     match.cricket_state = { ...match.cricket_state, finishedAt: Date.parse(match.updated_at) }
@@ -90,10 +91,36 @@ async function loadMatch(id: string, user: { id: string; admin: boolean }) {
   return match
 }
 
+async function chronologicalNumber(table: string, column: string, time: string, id: string, filters = '') {
+  const { url, headers } = supabaseConfig()
+  const timestamp = encodeURIComponent(time)
+  // Include archived matches so removing an old match does not renumber the series.
+  const before = '&or=(' + column + '.lt.' + timestamp + ',and(' + column + '.eq.' + timestamp + ',id.lt.' + id + '))'
+  const response = await fetch(url + '/rest/v1/' + table + '?select=id' + filters + before, {
+    method: 'HEAD', cache: 'no-store', headers: { ...headers, Prefer: 'count=exact' },
+  })
+  const count = response.headers.get('content-range')?.split('/')[1]
+  return response.ok && count && /^\d+$/.test(count) ? Number(count) + 1 : undefined
+}
+
+async function posterMetadata(match: MatchRow): Promise<MatchPosterMetadata> {
+  const createdAt = match.created_at
+  const series = match.cricket_series
+  if (!series || !match.series_id || !match.cricket_state.finishedAt) return { createdAt }
+  const [number, matchNumber] = await Promise.all([
+    chronologicalNumber('cricket_series', 'started_at', series.started_at, match.series_id),
+    chronologicalNumber('matches', 'created_at', createdAt, match.id, '&series_id=eq.' + match.series_id),
+  ].map(request => request.catch(() => undefined)))
+  return { createdAt, series: { name: series.name, number, matchNumber } }
+}
+
 async function matchDetails(match: MatchRow) {
-  const audit = await db<AuditEntry[]>('score_audit?select=id,actor_id,action,details,created_at&order=id.desc&limit=100&match_id=eq.' + match.id)
+  const [audit, poster_metadata] = await Promise.all([
+    db<AuditEntry[]>('score_audit?select=id,actor_id,action,details,created_at&order=id.desc&limit=100&match_id=eq.' + match.id),
+    posterMetadata(match),
+  ])
   const { cricket_series: series, ...details } = match
-  return { ...details, series_ended_at: series?.ended_at ?? null, audit }
+  return { ...details, series_ended_at: series?.ended_at ?? null, audit, poster_metadata }
 }
 
 export async function GET(request: Request) {
