@@ -70,7 +70,7 @@ export type AuditEntry = {
   details: { operation?: string; actorName?: string; innings?: number; over?: number; delivery?: number; toss?: Toss; pair?: BattingPair }
   created_at: string
 }
-export type SharedMatch = { id: string; cricket_state: Match; revision: number; audit: AuditEntry[] }
+export type SharedMatch = { id: string; cricket_state: Match; revision: number; audit: AuditEntry[]; series_id?: string | null; series_ended_at?: string | null }
 
 export function rulesFor(match: Match, innings: 0 | 1): Rules {
   const side = battingSide(match, innings)
@@ -84,6 +84,14 @@ export function rulesFor(match: Match, innings: 0 | 1): Rules {
     chooseOpeners: match.sides[side].length > 2 && (!match.games[innings].length || Boolean(battingPairs?.[0])),
     target: innings === 1 ? replay(rulesFor(match, 0), match.games[0]).runs + 1 : undefined,
   }
+}
+
+export function matchWinner(match: Match): 0 | 1 | null {
+  if (match.stoppedAt || match.innings !== 1) return null
+  const rules = rulesFor(match, 1)
+  const chase = replay(rules, match.games[1])
+  if (!chase.complete || chase.runs === rules.target! - 1) return null
+  return battingSide(match, chase.runs >= rules.target! ? 1 : 0)
 }
 
 export function frozenOvers(match: Match, innings: 0 | 1) {
@@ -128,7 +136,7 @@ export function applyOperation(match: Match, input: ScoreOperation, admin: boole
       throw new Error('Choose the toss winner and whether they elected to bat or bowl.')
     return { ...match, toss: { winner, decision }, startedAt: match.startedAt ?? Date.now() }
   }
-  if (awaitingToss(match)) throw new Error('Record the toss before scoring.')
+  if (awaitingToss(match) && input.operation !== 'stop') throw new Error('Record the toss before scoring.')
   const innings = match.innings
   const current = replay(rulesFor(match, innings), match.games[innings])
   const games: Match['games'] = [...match.games]

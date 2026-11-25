@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, updateMatchFinish } from '../app/match.ts'
+import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, matchWinner, rulesFor, teamLabel, updateMatchFinish } from '../app/match.ts'
+import { seriesResult } from '../app/series.ts'
 import { loginIdentifier } from '../app/player-login.ts'
 import { replay } from '../app/scoring.ts'
 
@@ -12,6 +13,27 @@ const match = {
 const dot = { kind: 'legal', batRuns: 0, physicalRuns: 0, bowler: 'C' }
 const wide = { ...dot, kind: 'wide' }
 const play = (state, balls) => balls.reduce((result, ball) => applyOperation(result, { operation: 'ball', ball }, false), state)
+
+test('series tally uses team identities even when Team B bats first', () => {
+  const teamBFirst = { ...match, overs: 1, toss: { winner: 1, decision: 'bat' } }
+  const first = play(teamBFirst, Array(6).fill({ ...dot, bowler: 'A' }))
+  const chase = applyOperation(first, { operation: 'chase' }, true)
+  const won = play(chase, [{ ...dot, batRuns: 1, physicalRuns: 1 }])
+  assert.equal(matchWinner(won), 0)
+  assert.equal(matchWinner(chase), null)
+  assert.equal(matchWinner(play(chase, Array(6).fill(dot))), null)
+  const stopping = applyOperation({ ...match, toss: undefined }, { operation: 'stop' }, true)
+  assert.ok(stopping.stoppedAt)
+  assert.equal(matchWinner(stopping), null)
+})
+
+test('ended series report a win, tie, or no result', () => {
+  const series = { team_a: 'West', team_b: 'East', wins_a: 0, wins_b: 0, ties: 0, ended_at: 'ended' }
+  assert.equal(seriesResult({ ...series, wins_b: 2, wins_a: 1 }), 'East wins the series 2–1')
+  assert.equal(seriesResult({ ...series, ties: 1 }), 'Series tied')
+  assert.equal(seriesResult(series), 'No winner · No completed matches')
+  assert.equal(seriesResult({ ...series, ended_at: null }), null)
+})
 
 test('choose openers and a replacement pair, then replay the correct batting figures', () => {
   const lineup = { ...match, sides: [['A', 'B', 'F', 'G'], ['C', 'D']] }

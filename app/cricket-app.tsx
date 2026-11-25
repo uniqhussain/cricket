@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
 import GroundSettings from './ground-settings'
+import SeriesPanel, { MatchList } from './series-panel'
+import type { MatchListEntry, Series } from './series'
 import MatchScorecard, { LiveFigures } from './match-scorecard'
 import MatchToss from './match-toss'
 import BattingPairPicker from './batting-pair'
@@ -19,7 +21,9 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const [shared, setShared] = useState<SharedMatch | null>(null)
   const [user, setUser] = useState<SessionUser | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [matches, setMatches] = useState<{ id: string; name: string; status: string }[]>([])
+  const [matches, setMatches] = useState<MatchListEntry[]>([])
+  const [series, setSeries] = useState<Series[]>([])
+  const [seriesId, setSeriesId] = useState('')
   const [accounts, setAccounts] = useState<Account[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [grounds, setGrounds] = useState<Ground[]>([])
@@ -31,7 +35,9 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const selection = useRef(0)
   const sessionVersion = useRef(0)
   const match = shared?.cricket_state ?? (!loginRequired && showLocal ? localMatch : null)
-  const canScore = !shared || canUmpire(user?.role)
+  const canScore = !shared || (!shared.series_ended_at && canUmpire(user?.role))
+  const currentSeries = series.find(item => item.id === seriesId) ?? series.find(item => !item.ended_at) ?? series[0]
+  const pastMatches = matches.filter(item => !item.series_id)
   const [ready, setReady] = useState(false)
   const [bowler, setBowler] = useState('')
   const [error, setError] = useState('')
@@ -78,6 +84,8 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     setUser(null)
     setProfile(null)
     setMatches([])
+    setSeries([])
+    setSeriesId('')
     setAccounts([])
     setProfiles([])
     setGrounds([])
@@ -93,7 +101,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
 
   async function refreshSession() {
     const version = ++sessionVersion.current
-    const data = await sharedRequest<{ user: SessionUser | null; profile?: Profile | null; matches: typeof matches }>()
+    const data = await sharedRequest<{ user: SessionUser | null; profile?: Profile | null; matches: MatchListEntry[]; series: Series[] }>()
     if (version !== sessionVersion.current) return
     if (!data.user) {
       clearSession()
@@ -102,6 +110,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     setUser(data.user)
     setProfile(data.profile ?? null)
     setMatches(data.matches)
+    setSeries(data.series ?? [])
     try {
       const directory = data.user.admin
         ? await sharedRequest<{ accounts: Account[]; profiles: Profile[]; grounds: Ground[] }>('?users')
@@ -152,6 +161,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       if (version !== selection.current) return
       setUser(data.user)
       setShared(data.match)
+      if (data.match.series_id) setSeriesId(data.match.series_id)
       setShowLocal(false)
       setSetup(null)
       setBowler('')
@@ -182,8 +192,24 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   }
 
   function createMatch(match: Match, roster?: RosterPlayer[]) {
-    if (setup === 'shared') void sharedWrite({ operation: 'create', match, roster })
+    if (setup === 'shared' && currentSeries && !currentSeries.ended_at)
+      void sharedWrite({ operation: 'create', match, roster, seriesId: currentSeries.id })
     else if (!loginRequired) { save(match); setShowLocal(true); setSetup(null) }
+  }
+
+  async function changeSeries(body: object) {
+    if (writing.current) return false
+    writing.current = true
+    setBusy(true)
+    setError('')
+    try {
+      const { id } = await sharedRequest<{ id: string }>('', body)
+      setSeriesId(id)
+      setSetup(null)
+      await refreshSession()
+      return true
+    } catch (error) { report(error); return false }
+    finally { writing.current = false; setBusy(false) }
   }
 
   function save(updated: Match) {
@@ -255,22 +281,26 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       {user?.admin && <GroundSettings grounds={grounds} addGround={addGround} />}
     </>}
     <div hidden={view !== 'home'}>
-    <h1>{match ? tossPending ? 'Match toss' : 'Match scorer' : 'Matches'}</h1>
+    <h1>{match ? tossPending ? 'Match toss' : 'Match scorer' : 'Cricket matches'}</h1>
     {match && <p className="muted">{shared ? 'Shared match · Saved to Supabase' : 'Local match · Saved in this browser'}</p>}
     {!ready && <p>Opening scorer…</p>}
     {ready && !match && <>
-      <section>
-        {user && <h2>Shared matches</h2>}
-        {user && (matches.length ? <ul>{matches.map(item => <li key={item.id}>
-          <button disabled={busy} onClick={() => void openMatch(item.id)}>{item.name}</button> · {item.status}
-        </li>)}</ul> : <p>No shared matches assigned yet.</p>)}
-        <div className="actions">
-          {user?.admin && <button disabled={busy} onClick={() => setSetup('shared')}>Set up shared match</button>}
-          {!loginRequired && (localMatch ? <button disabled={busy} onClick={() => { setShowLocal(true); setSetup(null) }}>Open local match</button>
-            : <button disabled={busy} onClick={() => setSetup('local')}>Set up local match</button>)}
-        </div>
-      </section>
-      {setup && <TeamSetup key={setup} onStart={createMatch} accounts={setup === 'shared' ? accounts : undefined}
+      {user && <SeriesPanel allSeries={series} current={currentSeries} admin={user.admin} busy={busy}
+        matches={matches.filter(item => item.series_id === currentSeries?.id)} openMatch={id => void openMatch(id)}
+        select={id => { setSeriesId(id); setSetup(null) }} addMatch={() => setSetup('shared')}
+        start={(name, teamA, teamB) => changeSeries({ operation: 'startSeries', name, teamA, teamB })}
+        finish={() => {
+          if (currentSeries && window.confirm('End this series and finalize the result?'))
+            void changeSeries({ operation: 'endSeries', seriesId: currentSeries.id })
+        }} />}
+      {pastMatches.length > 0 && <section><h2>Matches outside a series</h2>
+        <MatchList matches={pastMatches} busy={busy} openMatch={id => void openMatch(id)} />
+      </section>}
+      {!loginRequired && (localMatch ? <button disabled={busy} onClick={() => { setShowLocal(true); setSetup(null) }}>Open local match</button>
+        : <button disabled={busy} onClick={() => setSetup('local')}>Set up local match</button>)}
+      {setup && (setup !== 'shared' || (currentSeries && !currentSeries.ended_at))
+        && <TeamSetup key={setup + (currentSeries?.id ?? '')} onStart={createMatch} accounts={setup === 'shared' ? accounts : undefined}
+        seriesTeams={setup === 'shared' && currentSeries ? [currentSeries.team_a, currentSeries.team_b] : undefined}
         profiles={profiles} grounds={grounds} openGroundSettings={() => setView('settings')} busy={busy} />}
     </>}
     {match && score && rules && deliveries && <>
@@ -282,12 +312,16 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         void refreshSession().catch(report)
       }}>Back to matches</button>
       {shared && <button disabled={busy} onClick={() => void openMatch(shared.id)}>Refresh score</button>}
-      {tossPending ? canScore ? <MatchToss key={shared?.id} match={match} busy={busy} onSave={toss => {
+      {tossPending ? canScore ? <><MatchToss key={shared?.id} match={match} busy={busy} onSave={toss => {
         const action = { operation: 'toss', toss } as const
         if (shared) updateScore(action)
         else save(applyOperation(match, action, true))
-      }} /> : <section><p>Waiting for an admin or match umpire to record the toss.</p></section> : <>
-      {shared && !canScore && <p className="muted">You can view this score. Only admins and match umpires can update it.</p>}
+      }} />{shared?.series_id && <button disabled={busy} onClick={() => {
+        if (window.confirm('Stop this match without a result?')) updateScore({ operation: 'stop' })
+      }}>Stop match</button>}</> : <section><p>Waiting for an admin or match umpire to record the toss.</p></section> : <>
+      {shared && !canScore && <p className="muted">{shared.series_ended_at
+        ? 'This series has ended. Its results are final.'
+        : 'You can view this score. Only admins and match umpires can update it.'}</p>}
       <section aria-label="Match timing">
         <h2>Match timer</h2>
         <p className="score" role="timer">{duration}</p>
@@ -371,7 +405,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           <summary>Innings {innings + 1} · Over {over.over_number} · {over.score.runs}/{over.score.wickets} · Locked</summary>
           <ol>{over.score.deliveries.map((ball, index) => <li key={index}>
             {ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? ball.physicalRuns + 1 : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}
-            {shared && user?.admin && <details>
+            {shared && user?.admin && canScore && <details>
               <summary>Correct delivery</summary>
               <form key={shared.revision} onSubmit={event => {
                 event.preventDefault()

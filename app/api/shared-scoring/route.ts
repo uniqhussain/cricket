@@ -1,10 +1,14 @@
 import { signedInUser } from '../photo-session/auth'
-import { applyOperation, canUmpire, frozenOvers, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
+import { applyOperation, canUmpire, frozenOvers, matchWinner, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type RosterPlayer, type ScoreOperation } from '../../match'
+import type { Series } from '../../series'
 import { loginIdentifier, minPasswordLength, playerUsername } from '../../player-login'
 import { validatePlayerDetails, type PlayerDetails, type Profile } from '../../profile'
 import { ownsPhotoLink } from '../player-photos/photo-link'
 
-type MatchRow = { id: string; name: string; status: string; cricket_state: Match; revision: number; updated_at: string }
+type MatchRow = {
+  id: string; name: string; status: string; cricket_state: Match; revision: number; updated_at: string
+  series_id: string | null; cricket_series?: { ended_at: string | null } | null
+}
 const profileFields = 'user_id,name,nickname,details'
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
@@ -78,7 +82,7 @@ async function loadMatch(id: string, user: { id: string; admin: boolean }) {
     const memberships = await db<RosterPlayer[]>('match_players?select=user_id&match_id=eq.' + id + '&user_id=eq.' + user.id)
     if (!memberships.length) throw new RequestError('Match not found.', 404)
   }
-  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision,updated_at&cricket_state=not.is.null&archived_at=is.null&id=eq.' + id)
+  const [match] = await db<MatchRow[]>('matches?select=id,name,status,cricket_state,revision,updated_at,series_id,cricket_series(ended_at)&cricket_state=not.is.null&archived_at=is.null&id=eq.' + id)
   if (!match) throw new RequestError('Match not found.', 404)
   if (match.status === 'complete' && !match.cricket_state.finishedAt) {
     match.cricket_state = { ...match.cricket_state, finishedAt: Date.parse(match.updated_at) }
@@ -88,7 +92,8 @@ async function loadMatch(id: string, user: { id: string; admin: boolean }) {
 
 async function matchDetails(match: MatchRow) {
   const audit = await db<AuditEntry[]>('score_audit?select=id,actor_id,action,details,created_at&order=id.desc&limit=100&match_id=eq.' + match.id)
-  return { ...match, audit }
+  const { cricket_series: series, ...details } = match
+  return { ...details, series_ended_at: series?.ended_at ?? null, audit }
 }
 
 export async function GET(request: Request) {
@@ -96,7 +101,7 @@ export async function GET(request: Request) {
     const user = await session()
     const params = new URL(request.url).searchParams
     if (!user && (params.has('match') || params.has('users'))) throw new RequestError('Sign in to continue.', 401)
-    if (!user) return Response.json({ user: null, matches: [], configured: Boolean(
+    if (!user) return Response.json({ user: null, matches: [], series: [], configured: Boolean(
       process.env.SUPABASE_URL && (process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY)
       && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY),
     ) })
@@ -114,10 +119,11 @@ export async function GET(request: Request) {
     const [profile] = await db<Profile[]>('cricket_profiles?select=' + profileFields + '&user_id=eq.' + user.id)
     const rows = user.admin ? null : await db<{ match_id: string }[]>('match_players?select=match_id&user_id=eq.' + user.id)
     const matches = rows?.length === 0 ? [] : await db<MatchRow[]>(
-      'matches?select=id,name,status&cricket_state=not.is.null&archived_at=is.null&order=updated_at.desc&limit=100'
+      'matches?select=id,name,status,series_id&cricket_state=not.is.null&archived_at=is.null&order=updated_at.desc&limit=100'
       + (rows ? '&id=in.(' + rows.map(row => row.match_id).join(',') + ')' : ''),
     )
-    return Response.json({ user, matches, profile: profile ?? null })
+    const series = await rpc<Series[]>('cricket_series_directory', { actor: user.id })
+    return Response.json({ user, matches, series, profile: profile ?? null })
   } catch (error) { return errorResponse(error) }
 }
 
@@ -164,6 +170,20 @@ export async function POST(request: Request) {
     if (!user) throw new RequestError('Sign in to continue.', 401)
     const body = await request.json().catch(() => null)
     if (!body || typeof body.operation !== 'string') throw new RequestError('Invalid request.', 400)
+    if (body.operation === 'startSeries' || body.operation === 'endSeries') {
+      if (!user.admin) throw new RequestError('Only admins can start or end a series.', 403)
+      if (body.operation === 'endSeries') {
+        if (typeof body.seriesId !== 'string' || !uuid.test(body.seriesId)) throw new RequestError('Choose a series.', 400)
+        await rpc('cricket_end_series', { actor: user.id, series_key: body.seriesId })
+        return Response.json({ id: body.seriesId })
+      }
+      const names = [body.name, body.teamA, body.teamB].map(value => typeof value === 'string' ? value.trim() : '')
+      if (names.some(value => !value || value.length > 80)) throw new RequestError('Enter a series name and both team names (up to 80 characters each).', 400)
+      const [name, teamA, teamB] = names
+      if (teamA.toLowerCase() === teamB.toLowerCase()) throw new RequestError('Use two different team names.', 400)
+      const id = await rpc<string>('cricket_start_series', { actor: user.id, series_name: name, first_team: teamA, second_team: teamB })
+      return Response.json({ id }, { status: 201 })
+    }
     if (body.operation === 'addGround') {
       if (!user.admin) throw new RequestError('Only admins can add grounds.', 403)
       if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 120)
@@ -278,16 +298,20 @@ export async function POST(request: Request) {
     }
     if (body.operation === 'create') {
       if (!user.admin) throw new RequestError('Only an admin can set up a shared match.', 403)
+      if (typeof body.seriesId !== 'string' || !uuid.test(body.seriesId)) throw new RequestError('Start or choose an active series first.', 400)
       const groundId = body.match?.ground?.id
       if (typeof groundId !== 'string' || !uuid.test(groundId)) throw new RequestError('Choose a saved ground.', 400)
       const [ground] = await db<Ground[]>('cricket_grounds?select=id,name&id=eq.' + groundId)
       if (!ground) throw new RequestError('Choose a saved ground from Settings.', 400)
       const { state, roster } = createState(body.match, body.roster, ground)
-      const id = await rpc<string>('cricket_create_match', { actor: user.id, title: teamLabel(state, 0) + ' vs ' + teamLabel(state, 1), state, roster })
+      const id = await rpc<string>('cricket_create_series_match', {
+        actor: user.id, series_key: body.seriesId, title: teamLabel(state, 0) + ' vs ' + teamLabel(state, 1), state, roster,
+      })
       return Response.json({ match: await matchDetails(await loadMatch(id, user)) }, { status: 201 })
     }
     if (typeof body.id !== 'string' || !Number.isInteger(body.revision)) throw new RequestError('Invalid match update.', 400)
     const match = await loadMatch(body.id, user)
+    if (match.cricket_series?.ended_at) throw new RequestError('This series has ended. Its results are final.', 400)
     if (!canUmpire(user.role)) throw new RequestError('Only admins and match umpires can update scores.', 403)
     if (body.revision !== match.revision) throw new RequestError('Someone updated this match. Check the latest score before trying again.', 409)
     if (body.operation === 'correct' && !user.admin) throw new RequestError('Only an admin can correct a frozen over.', 403)
@@ -307,10 +331,11 @@ export async function POST(request: Request) {
       } : body.operation === 'ball' ? { delivery: state.games[state.innings].length, after: state.games[state.innings].at(-1) }
         : body.operation === 'undo' ? { delivery: match.cricket_state.games[state.innings].length, before: match.cricket_state.games[state.innings].at(-1) } : {}),
     }
-    await rpc('cricket_save_match', {
+    await rpc('cricket_save_match_result', {
       actor: user.id, match_key: match.id, expected_revision: body.revision, state,
       match_status: state.stoppedAt ? 'stopped' : state.finishedAt ? 'complete' : 'live',
       event, frozen: [0 as const, 1 as const].flatMap(innings => frozenOvers(state, innings)), admin_only: body.operation === 'correct',
+      winner: state.finishedAt ? matchWinner(state) : null,
     })
     return Response.json({ match: await matchDetails(await loadMatch(match.id, user)) })
   } catch (error) { return errorResponse(error) }

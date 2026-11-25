@@ -12,12 +12,13 @@ type Player = PlayerDetails & {
 }
 const registryKey = 'turf-cricket-players-v1'
 
-export default function TeamSetup({ onStart, accounts, profiles = [], grounds, openGroundSettings, busy }: {
+export default function TeamSetup({ onStart, accounts, profiles = [], grounds, openGroundSettings, seriesTeams, busy }: {
   onStart: (match: Match, roster?: RosterPlayer[]) => void
   accounts?: Account[]
   profiles?: Profile[]
   grounds: Ground[]
   openGroundSettings: () => void
+  seriesTeams?: [string, string]
   busy?: boolean
 }) {
   const [players, setPlayers] = useState<Player[]>([])
@@ -33,7 +34,7 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
   const [savingPlayer, setSavingPlayer] = useState(false)
   const [uploadedPhoto, setUploadedPhoto] = useState('')
   const [photoInputKey, setPhotoInputKey] = useState(0)
-  const [teams, setTeams] = useState<[string, string]>(['', ''])
+  const [teams, setTeams] = useState<[string, string]>(seriesTeams ?? ['', ''])
   const [nicknames, setNicknames] = useState<[string, string]>(['', ''])
   const [oversInput, setOversInput] = useState<string | null>(null)
   const [members, setMembers] = useState<[string[], string[]]>([[], []])
@@ -186,7 +187,7 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
       {accounts && grounds.length === 0 && <button type="button" onClick={openGroundSettings}>Add a ground in Settings</button>}
       {([0, 1] as const).map(index => <fieldset key={index}>
         <legend>Team {index === 0 ? 'A' : 'B'}</legend>
-        <label>Team name<input required maxLength={80} value={teams[index]} onChange={event => {
+        <label>Team name<input required readOnly={Boolean(seriesTeams)} maxLength={80} value={teams[index]} onChange={event => {
           const updated: [string, string] = [...teams]
           updated[index] = event.target.value
           setTeams(updated)
