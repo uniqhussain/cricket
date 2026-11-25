@@ -327,6 +327,8 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       {shared && !canScore && <p className="muted">{shared.series_ended_at
         ? 'This series has ended. Its results are final.'
         : 'You can view this score. Only admins and match umpires can update it.'}</p>}
+      {finishedAt && !stoppedAt && <PosterExport key={(shared?.id ?? startedAt) + ':' + (shared?.revision ?? finishedAt)}
+        match={match} metadata={shared?.poster_metadata} />}
       <section aria-label="Match timing">
         <h2>Match timer</h2>
         <p className="score" role="timer">{duration}</p>
@@ -353,8 +355,6 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           ? teamLabel(match, battingSide(match, 1)) + ' wins'
           : score.runs === rules.target! - 1 ? 'Match tied' : teamLabel(match, battingSide(match, 0)) + ' wins'}</strong>}
       </section>
-      {finishedAt && !stoppedAt && <PosterExport key={(shared?.id ?? startedAt) + ':' + (shared?.revision ?? finishedAt)}
-        match={match} metadata={shared?.poster_metadata} />}
       {score.pendingPair && !stoppedAt && (canScore
         ? <BattingPairPicker key={match.innings + ':' + deliveries.length} {...score.pendingPair} busy={busy}
             onSave={pair => {
