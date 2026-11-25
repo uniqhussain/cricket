@@ -18,14 +18,24 @@ export default function BattingPairPicker({ candidates, survivor, busy, onSave }
       if (!busy && striker && partner) onSave({ striker, partner })
     }}>
       <div className="grid">
-        <label>Striker<select value={striker} onChange={event => setStriker(event.target.value)} required disabled={busy}>
+        <label>Striker<select value={striker} onChange={event => {
+          const name = event.target.value
+          setStriker(name)
+          if (candidates.length === 2) setPartner(name ? candidates.find(item => item !== name) ?? '' : '')
+        }} required disabled={busy}>
           <option value="">Select striker</option>
-          {candidates.filter(name => name !== partner && (!survivor || !partner || partner === survivor || name === survivor))
+          {candidates.filter(name => candidates.length === 2
+            || (name !== partner && (!survivor || !partner || partner === survivor || name === survivor)))
             .map(name => <option key={name}>{name}</option>)}
         </select></label>
-        <label>Other end<select value={partner} onChange={event => setPartner(event.target.value)} required disabled={busy}>
+        <label>Other end<select value={partner} onChange={event => {
+          const name = event.target.value
+          setPartner(name)
+          if (candidates.length === 2) setStriker(name ? candidates.find(item => item !== name) ?? '' : '')
+        }} required disabled={busy}>
           <option value="">Select batter at the other end</option>
-          {candidates.filter(name => name !== striker && (!survivor || !striker || striker === survivor || name === survivor))
+          {candidates.filter(name => candidates.length === 2
+            || (name !== striker && (!survivor || !striker || striker === survivor || name === survivor)))
             .map(name => <option key={name}>{name}</option>)}
         </select></label>
       </div>

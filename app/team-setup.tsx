@@ -237,7 +237,7 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
     }}>
       <h2>Assign players to teams</h2>
       {ground && <p className="muted">{ground.name}</p>}
-      <p>For teams with more than two players, choose the openers before scoring. One bowler per team can bowl two overs. No bowler can bowl consecutive overs.</p>
+      <p>Choose the openers before scoring. One bowler per team can bowl two overs. No bowler can bowl consecutive overs.</p>
       {accounts && <p>Choose registered players. Admins and assigned players with umpire access can score.</p>}
       {([0, 1] as const).map(index => <fieldset key={index}>
         <legend>Team {index === 0 ? 'A' : 'B'} · {nicknames[index].trim() || teams[index].trim()}</legend>

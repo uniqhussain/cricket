@@ -13,11 +13,13 @@ const match = {
 const dot = { kind: 'legal', batRuns: 0, physicalRuns: 0, bowler: 'C' }
 const wide = { ...dot, kind: 'wide' }
 const play = (state, balls) => balls.reduce((result, ball) => applyOperation(result, { operation: 'ball', ball }, false), state)
+const choose = (state, striker, partner) => applyOperation(state, { operation: 'batters', pair: { striker, partner } }, false)
+const opened = choose(match, 'A', 'B')
 
 test('series tally uses team identities even when Team B bats first', () => {
   const teamBFirst = { ...match, overs: 1, toss: { winner: 1, decision: 'bat' } }
-  const first = play(teamBFirst, Array(6).fill({ ...dot, bowler: 'A' }))
-  const chase = applyOperation(first, { operation: 'chase' }, true)
+  const first = play(choose(teamBFirst, 'C', 'D'), Array(6).fill({ ...dot, bowler: 'A' }))
+  const chase = choose(applyOperation(first, { operation: 'chase' }, true), 'A', 'B')
   const won = play(chase, [{ ...dot, batRuns: 1, physicalRuns: 1 }])
   assert.equal(matchWinner(won), 0)
   assert.equal(matchWinner(chase), null)
@@ -38,7 +40,6 @@ test('ended series report a win, tie, or no result', () => {
 test('choose openers and a replacement pair, then replay the correct batting figures', () => {
   const lineup = { ...match, sides: [['A', 'B', 'F', 'G'], ['C', 'D']] }
   const score = state => replay(rulesFor(state, 0), state.games[0])
-  const choose = (state, striker, partner) => applyOperation(state, { operation: 'batters', pair: { striker, partner } }, false)
   assert.throws(() => play(lineup, [dot]), /Choose both batters/)
   const opened = choose(lineup, 'F', 'B')
   const wicket = play(opened, [{ ...dot, dismissed: 'F' }])
@@ -54,11 +55,13 @@ test('choose openers and a replacement pair, then replay the correct batting fig
   assert.equal(undone.battingPairs[0][1], undefined)
 })
 
-test('two openers are automatic and the last batter can continue alone', () => {
-  const wicket = play(match, [{ ...dot, dismissed: 'A' }])
+test('two-player teams choose who opens and the last batter can continue alone', () => {
+  assert.deepEqual(replay(rulesFor(match, 0), []).pendingPair?.candidates, ['A', 'B'])
+  assert.throws(() => play(match, [dot]), /Choose both batters/)
+  const wicket = play(choose(match, 'B', 'A'), [{ ...dot, dismissed: 'B' }])
   const score = replay(rulesFor(wicket, 0), wicket.games[0])
   assert.equal(score.pendingPair, undefined)
-  assert.equal(score.striker, 'B')
+  assert.equal(score.striker, 'A')
   assert.equal(score.partner, undefined)
 })
 
@@ -92,9 +95,9 @@ test('existing scored matches keep their batting order, and existing empty match
 })
 
 test('the clock freezes when the chase ends and resumes if undo reopens it', () => {
-  const firstInnings = play({ ...match, overs: 1, startedAt: 1000 }, Array(6).fill(dot))
+  const firstInnings = play({ ...opened, overs: 1, startedAt: 1000 }, Array(6).fill(dot))
   assert.equal(firstInnings.finishedAt, undefined)
-  const chase = applyOperation(firstInnings, { operation: 'chase' }, true)
+  const chase = choose(applyOperation(firstInnings, { operation: 'chase' }, true), 'C', 'D')
   const won = applyOperation(chase, { operation: 'ball', ball: { ...dot, bowler: 'A', batRuns: 1, physicalRuns: 1 } }, true)
   assert.ok(won.finishedAt)
   const finished = updateMatchFinish({ ...won, finishedAt: undefined }, 6500)
@@ -120,7 +123,7 @@ test('only admins and designated umpires can score shared matches', () => {
 })
 
 test('the sixth legal ball freezes the over, including preceding extras', () => {
-  const open = play(match, [dot, dot, wide, dot, dot, dot])
+  const open = play(opened, [dot, dot, wide, dot, dot, dot])
   assert.equal(frozenOvers(open, 0).length, 0)
   assert.equal(applyOperation(open, { operation: 'undo' }, false).games[0].length, 5)
   const closed = play(open, [dot])
@@ -131,7 +134,7 @@ test('the sixth legal ball freezes the over, including preceding extras', () => 
 })
 
 test('only an admin can correct a frozen delivery without changing the legal-ball count', () => {
-  const closed = play(match, Array(6).fill(dot))
+  const closed = play(opened, Array(6).fill(dot))
   const correction = { operation: 'correct', innings: 0, index: 0, ball: { ...dot, batRuns: 4, boundary: 4 } }
   assert.throws(() => applyOperation(closed, correction, false), /admin/)
   assert.throws(() => applyOperation(closed, { ...correction, ball: wide }, true), /legal-ball count/)

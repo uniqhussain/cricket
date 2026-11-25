@@ -81,7 +81,7 @@ export function rulesFor(match: Match, innings: 0 | 1): Rules {
     bowlers: match.sides[oppositeSide(side)],
     lastMan: match.lastMan,
     battingPairs,
-    chooseOpeners: match.sides[side].length > 2 && (!match.games[innings].length || Boolean(battingPairs?.[0])),
+    chooseOpeners: match.sides[side].length >= 2 && (!match.games[innings].length || Boolean(battingPairs?.[0])),
     target: innings === 1 ? replay(rulesFor(match, 0), match.games[0]).runs + 1 : undefined,
   }
 }
