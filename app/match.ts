@@ -94,20 +94,37 @@ export function matchWinner(match: Match): 0 | 1 | null {
   return battingSide(match, chase.runs >= rules.target! ? 1 : 0)
 }
 
-export function frozenOvers(match: Match, innings: 0 | 1) {
+export function overCards(match: Match, innings: 0 | 1) {
+  const balls = match.games[innings]
   let legal = 0
+  let previousLegal = 0
   let start = 0
-  return match.games[innings].flatMap((ball, index) => {
-    if (ball.kind !== 'legal' || ++legal % 6 !== 0) return []
-    const deliveries = match.games[innings].slice(start, index + 1)
+  let inningsRuns = 0
+  let inningsWickets = 0
+  return balls.flatMap((ball, index) => {
+    if (ball.kind === 'legal') legal++
+    const locked = ball.kind === 'legal' && legal % 6 === 0
+    if (!locked && index !== balls.length - 1) return []
+    const deliveries = balls.slice(start, index + 1)
     const score = deliveries.reduce((total, item) => ({
       runs: total.runs + item.batRuns + (item.kind === 'wide' ? 1 + item.physicalRuns : 0),
       wickets: total.wickets + Number(Boolean(item.dismissed)),
     }), { runs: 0, wickets: 0 })
-    const over = { innings, over_number: legal / 6, start, end: index + 1, score: { ...score, deliveries } }
+    inningsRuns += score.runs
+    inningsWickets += score.wickets
+    const over = {
+      innings, over_number: previousLegal / 6 + 1, start, end: index + 1, score: { ...score, deliveries },
+      locked, legalBalls: legal - previousLegal, inningsRuns, inningsWickets,
+    }
     start = index + 1
+    previousLegal = legal
     return [over]
   })
+}
+
+export function frozenOvers(match: Match, innings: 0 | 1) {
+  return overCards(match, innings).filter(over => over.locked)
+    .map(({ start, end, innings, over_number, score }) => ({ start, end, innings, over_number, score }))
 }
 
 export type ScoreOperation =

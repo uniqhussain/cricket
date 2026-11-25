@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, matchWinner, rulesFor, teamLabel, updateMatchFinish } from '../app/match.ts'
+import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, matchWinner, overCards, rulesFor, teamLabel, updateMatchFinish } from '../app/match.ts'
 import { seriesResult } from '../app/series.ts'
 import { loginIdentifier } from '../app/player-login.ts'
 import { replay } from '../app/scoring.ts'
@@ -15,6 +15,17 @@ const wide = { ...dot, kind: 'wide' }
 const play = (state, balls) => balls.reduce((result, ball) => applyOperation(result, { operation: 'ball', ball }, false), state)
 const choose = (state, striker, partner) => applyOperation(state, { operation: 'batters', pair: { striker, partner } }, false)
 const opened = choose(match, 'A', 'B')
+
+test('over cards include extras, preserve delivery order, and show an incomplete over', () => {
+  const four = { ...dot, batRuns: 4, boundary: 4 }
+  const state = play(opened, [four, wide, dot, dot, dot, dot, dot, { ...wide, bowler: 'D' }])
+  const [first, second] = overCards(state, 0)
+  assert.deepEqual([first.over_number, first.locked, first.legalBalls, first.score.runs, first.inningsRuns], [1, true, 6, 5, 5])
+  assert.deepEqual(first.score.deliveries.map(ball => ball.kind), ['legal', 'wide', 'legal', 'legal', 'legal', 'legal', 'legal'])
+  assert.deepEqual([second.over_number, second.locked, second.legalBalls, second.score.runs, second.inningsRuns], [2, false, 0, 1, 6])
+  assert.equal(frozenOvers(state, 0).length, 1)
+  assert.equal(frozenOvers(state, 0)[0].end, 7)
+})
 
 test('series tally uses team identities even when Team B bats first', () => {
   const teamBFirst = { ...match, overs: 1, toss: { winner: 1, decision: 'bat' } }

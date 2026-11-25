@@ -47,6 +47,35 @@ main { overflow-wrap: anywhere; }
 .scorecard-table th, .scorecard-table td { padding: 8px 5px; border-bottom: 1px solid #344a42; text-align: end; }
 .scorecard-table th:first-child { text-align: start; min-width: 76px; }
 .scorecard-table th small { display: block; color: #b0c5ba; font-weight: 400; }
+
+.over-timeline h2 { margin-top: 0; }
+.over-innings-nav button[aria-pressed="false"] { background: transparent; color: inherit; }
+.over-key, .over-deliveries { display: flex; flex-wrap: wrap; gap: 7px; padding: 0; list-style: none; }
+.over-key { font-size: .8rem; color: #c6d7ce; gap: 8px 12px; }
+.over-key li { display: flex; align-items: center; gap: 4px; }
+.over-key .delivery-chip { min-width: 24px; min-height: 24px; padding: 2px 4px; font-size: .72rem; }
+.over-cards { display: grid; gap: 12px; }
+.over-card { border: 1px solid #3c564b; border-radius: 12px; background: #10211c; padding: 12px; }
+.over-in-play { border-color: #a3efbe; }
+.over-card-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; }
+.over-card-heading h3 { margin: 0 0 3px; font-size: 1.05rem; }
+.over-card-heading .muted { font-size: .85rem; }
+.over-card-total { display: grid; gap: 3px; text-align: end; }
+.over-deliveries { margin: 12px 0 8px; }
+.delivery-chip {
+  display: inline-grid; place-items: center; border-radius: 8px; min-width: 32px; min-height: 32px;
+  padding: 3px 6px; font-size: .875rem; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.delivery-dot { background: #32473f; color: #eff7f3; }
+.delivery-runs { background: #d6e9df; color: #193a2c; }
+.delivery-four { background: #9ceac7; color: #10382b; }
+.delivery-six { background: #bcb3ff; color: #251859; }
+.delivery-wicket { background: #ffb6bd; color: #581b27; }
+.delivery-extra { background: #ffda8d; color: #4b2e05; }
+.delivery-description { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.over-caption { font-size: .85rem; margin: 8px 0 0; }
+.over-card details { margin-top: 8px; }
+.over-card summary { cursor: pointer; }
 button, input, select { max-width: 100%; min-width: 0; }
 .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 480px) {

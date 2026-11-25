@@ -6,6 +6,7 @@ import GroundSettings from './ground-settings'
 import SeriesPanel, { MatchList } from './series-panel'
 import type { MatchListEntry, Series } from './series'
 import MatchScorecard, { LiveFigures } from './match-scorecard'
+import OverTimeline from './over-timeline'
 import MatchToss from './match-toss'
 import BattingPairPicker from './batting-pair'
 import PhotoSignIn from './photo-sign-in'
@@ -365,14 +366,15 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         </select></label>
         <div className="actions scoring-pad">
           {[0, 1, 2, 3].map(n => <button key={n} disabled={!activeBowler} onClick={() => addBall('legal', n)}>{n}</button>)}
-          {[4, 6].map(n => <button key={n} disabled={!activeBowler} onClick={() => addBall('legal', n, n as 4 | 6, undefined, 0)}>{n}</button>)}
-          <button disabled={!activeBowler} onClick={() => addBall('legal', 0, undefined, score.striker)}>Wicket</button>
+          {[4, 6].map(n => <button key={n} className={n === 4 ? 'delivery-four' : 'delivery-six'} disabled={!activeBowler}
+            onClick={() => addBall('legal', n, n as 4 | 6, undefined, 0)}>{n}</button>)}
+          <button className="delivery-wicket" disabled={!activeBowler} onClick={() => addBall('legal', 0, undefined, score.striker)}>Wicket</button>
         </div>
         <label>Physical runs<input type="number" min="0" value={running} onChange={e => setRunning(Number(e.target.value))} /></label>
         <div className="actions">
           <button disabled={!activeBowler} onClick={() => addBall('legal', running)}>Runs completed</button>
-          <button disabled={!activeBowler} onClick={() => addBall('wide', 0, undefined, undefined, running)}>Wide</button>
-          <button disabled={!activeBowler} onClick={() => addBall('no-ball', running)}>No-ball</button>
+          <button className="delivery-extra" disabled={!activeBowler} onClick={() => addBall('wide', 0, undefined, undefined, running)}>Wide</button>
+          <button className="delivery-extra" disabled={!activeBowler} onClick={() => addBall('no-ball', running)}>No-ball</button>
         </div>
       </fieldset></section>}
       {canScore && <section className="actions">
@@ -395,44 +397,10 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}
       </section>}
+      <OverTimeline key={shared?.id ?? startedAt} match={match} currentComplete={score.complete} revision={shared?.revision} busy={busy}
+        onCorrect={shared && user?.admin && canScore ? updateScore : undefined} />
       {!finishedAt && !stoppedAt && <LiveFigures score={score} bowler={activeBowler} />}
       <MatchScorecard key={shared?.id ?? startedAt} match={match} />
-      <section><h2>Delivery log</h2>
-        {deliveries.length ? <ol>{deliveries.map((ball, i) => <li key={i}>{ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? 1 + ball.physicalRuns : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}</li>)}</ol> : <p>No deliveries yet.</p>}
-      </section>
-      <section><h2>Frozen overs</h2>
-        {([0, 1] as const).map(innings => frozenOvers(match, innings).map(over => <details key={innings + ':' + over.over_number}>
-          <summary>Innings {innings + 1} · Over {over.over_number} · {over.score.runs}/{over.score.wickets} · Locked</summary>
-          <ol>{over.score.deliveries.map((ball, index) => <li key={index}>
-            {ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? ball.physicalRuns + 1 : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}
-            {shared && user?.admin && canScore && <details>
-              <summary>Correct delivery</summary>
-              <form key={shared.revision} onSubmit={event => {
-                event.preventDefault()
-                const form = new FormData(event.currentTarget)
-                const runs = Number(form.get('runs'))
-                const boundary = Number(form.get('boundary')) as 0 | 4 | 6
-                const dismissed = String(form.get('dismissed') ?? '')
-                updateScore({ operation: 'correct', innings, index: over.start + index, ball: {
-                  ...ball, batRuns: ball.kind === 'wide' ? 0 : boundary || runs,
-                  physicalRuns: boundary ? 0 : runs, boundary: boundary || undefined, dismissed: dismissed || undefined,
-                } })
-              }}>
-                <label>Runs completed<input type="number" name="runs" min={0} max={100} defaultValue={ball.physicalRuns} required /></label>
-                {ball.kind !== 'wide' && <label>Boundary<select name="boundary" defaultValue={ball.boundary ?? 0}>
-                  <option value={0}>None</option><option value={4}>Four</option><option value={6}>Six</option>
-                </select></label>}
-                {ball.kind === 'legal' && <label>Dismissed batter<select name="dismissed" defaultValue={ball.dismissed ?? ''}>
-                  <option value="">None</option>
-                  {match.sides[battingSide(match, innings)].map(batter => <option key={batter}>{batter}</option>)}
-                </select></label>}
-                <button disabled={busy}>Save correction</button>
-              </form>
-            </details>}
-          </li>)}</ol>
-        </details>))}
-        {!frozenOvers(match, 0).length && !frozenOvers(match, 1).length && <p>No completed overs yet.</p>}
-      </section>
       {shared && <section><h2>Score updates</h2>
         {shared.audit.length ? <ol>{shared.audit.map(entry => <li key={entry.id}>
           {entry.details.actorName ?? entry.actor_id} · {entry.details.toss
