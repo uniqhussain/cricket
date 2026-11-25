@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Match, MatchPosterMetadata } from './match'
 import { buildPosterData, type PosterData } from './poster-data'
+import CopyScoreImage from './copy-score-image'
 import '@fontsource-variable/geist'
 import './poster.css'
 
@@ -78,7 +79,10 @@ export default function PosterExport({ match, metadata }: { match: Match; metada
   }
 
   return <section aria-label="Completed match poster">
-    {result && <h2>{result}</h2>}
+    <div className="score-share-heading">
+      <h2>{result || 'Match scorecard'}</h2>
+      <CopyScoreImage label="Copy full match poster" filename="turf-cricket-scorecard" match={match} metadata={metadata} />
+    </div>
     <div className="actions">
       <button type="button" onClick={() => void generate()} disabled={busy}>Generate WhatsApp Poster</button>
       {images && <button type="button" onClick={() => dialog.current?.showModal()}>Preview Poster</button>}

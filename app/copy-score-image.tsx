@@ -7,7 +7,7 @@ export default function CopyScoreImage({ label, filename, match, metadata, selec
   filename: string
   match: Match
   metadata?: MatchPosterMetadata
-  selection: PosterSelection
+  selection?: PosterSelection
 }) {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
