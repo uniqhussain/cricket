@@ -1,9 +1,15 @@
+export type Dismissal = { kind: 'bowler' } | {
+  kind: 'caught' | 'stumped' | 'run-out'
+  fielder: string
+}
+
 export type Delivery = {
   kind: 'legal' | 'wide' | 'no-ball'
   batRuns: number
   physicalRuns: number
   boundary?: 4 | 6
   dismissed?: string
+  dismissal?: Dismissal
   chooseNextPair?: boolean
   bowler: string
 }
@@ -43,6 +49,7 @@ type BattingFigures = {
   fours: number
   sixes: number
   dismissedBy?: string
+  dismissal?: Dismissal
 }
 
 type BowlingFigures = {
@@ -54,6 +61,8 @@ type BowlingFigures = {
   wides: number
   noBalls: number
 }
+
+type FieldingFigures = { name: string; catches: number; stumpings: number; runOuts: number }
 
 export function replay(rules: Rules, deliveries: Delivery[]) {
   let runs = 0
@@ -73,6 +82,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     name, { name, batted: false, runs: 0, balls: 0, fours: 0, sixes: 0 },
   ]))
   const bowling = new Map<string, BowlingFigures>()
+  const fielding = new Map<string, FieldingFigures>()
   const complete = () => legal >= rules.overs * 6
     || wickets >= rules.batters.length - (rules.lastMan ? 0 : 1)
     || (rules.target !== undefined && runs >= rules.target)
@@ -110,6 +120,10 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
       throw new Error('Check the boundary and running details.')
     if (ball.dismissed && (ball.kind !== 'legal' || ![striker, partner].includes(ball.dismissed)))
       throw new Error('Choose an active batter on a legal delivery.')
+    if (ball.dismissal && (!ball.dismissed || (ball.dismissal.kind !== 'run-out' && ball.dismissed !== striker)))
+      throw new Error('Only a run-out can dismiss the batter at the other end.')
+    if (ball.dismissal && ball.dismissal.kind !== 'bowler' && !rules.bowlers.includes(ball.dismissal.fielder))
+      throw new Error('Choose a fielder from the bowling team.')
 
     currentBowler = ball.bowler
     const extra = ball.kind === 'wide' ? 1 + ball.physicalRuns : 0
@@ -136,8 +150,18 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     if (partner && ball.physicalRuns % 2) [striker, partner] = [partner, striker]
     if (ball.dismissed) {
       wickets++
-      bowler.wickets++
-      batting.get(ball.dismissed)!.dismissedBy = ball.bowler
+      if (ball.dismissal?.kind !== 'run-out') bowler.wickets++
+      const dismissed = batting.get(ball.dismissed)!
+      dismissed.dismissedBy = ball.bowler
+      dismissed.dismissal = ball.dismissal
+      if (ball.dismissal && ball.dismissal.kind !== 'bowler') {
+        const { kind, fielder } = ball.dismissal
+        const figures = fielding.get(fielder) ?? { name: fielder, catches: 0, stumpings: 0, runOuts: 0 }
+        if (kind === 'caught') figures.catches++
+        if (kind === 'stumped') figures.stumpings++
+        if (kind === 'run-out') figures.runOuts++
+        fielding.set(fielder, figures)
+      }
       const unused = rules.batters.filter(name => !entered.has(name))
       const survivor = ball.dismissed === striker ? partner : striker
       if (ball.chooseNextPair && survivor && unused.length) {
@@ -175,7 +199,8 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   const battingOrder = [...[...entered].filter(name => batting.has(name)), ...rules.batters.filter(name => !entered.has(name))]
   return {
     runs, wickets, extras, legal, striker, partner, pendingPair, currentBowler, previousBowler, quota, repeatBowler,
-    complete: complete(), overs: formatOvers(legal), batting: battingOrder.map(name => batting.get(name)!), bowling: [...bowling.values()],
+    complete: complete(), overs: formatOvers(legal), batting: battingOrder.map(name => batting.get(name)!),
+    bowling: [...bowling.values()], fielding: [...fielding.values()],
   }
 }
 

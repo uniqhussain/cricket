@@ -1,4 +1,4 @@
-import { replay, type BattingPair, type Delivery, type Rules } from './scoring.ts'
+import { replay, type BattingPair, type Delivery, type Dismissal, type Rules } from './scoring.ts'
 
 export type Match = {
   toss?: Toss
@@ -141,8 +141,17 @@ function validatedBall(ball: Delivery) {
     || (ball.dismissed !== undefined && typeof ball.dismissed !== 'string')) throw new Error('Invalid delivery.')
   if (!ball.boundary && ball.kind !== 'wide' && ball.physicalRuns !== ball.batRuns)
     throw new Error('Physical runs must match bat runs for this delivery.')
+  let dismissal: Dismissal | undefined
+  if (ball.dismissal !== undefined) {
+    const info = ball.dismissal
+    if (!ball.dismissed || !info || typeof info !== 'object') throw new Error('Choose a dismissed batter.')
+    if (info.kind === 'bowler') dismissal = { kind: 'bowler' }
+    else if (['caught', 'stumped', 'run-out'].includes(info.kind) && typeof info.fielder === 'string')
+      dismissal = { kind: info.kind, fielder: info.fielder }
+    else throw new Error('Choose a dismissal and fielder.')
+  }
   const { kind, bowler, batRuns, physicalRuns, boundary, dismissed } = ball
-  return { kind, bowler, batRuns, physicalRuns, boundary, dismissed }
+  return { kind, bowler, batRuns, physicalRuns, boundary, dismissed, dismissal }
 }
 
 export function applyOperation(match: Match, input: ScoreOperation, admin: boolean) {

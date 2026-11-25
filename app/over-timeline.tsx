@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
-import { battingSide, overCards, teamLabel, type Match, type ScoreOperation } from './match'
+import { battingSide, oppositeSide, overCards, teamLabel, type Match, type ScoreOperation } from './match'
+import DismissalFields, { readDismissal } from './dismissal-fields'
 import type { Delivery } from './scoring'
 
 function deliveryChip(ball: Delivery) {
   if (ball.dismissed) return {
     tone: 'wicket', text: ball.batRuns ? 'W+' + ball.batRuns : 'W',
-    label: ball.dismissed + ' out' + (ball.batRuns ? ', ' + ball.batRuns + ' runs' : ''),
+    label: ball.dismissed + ' out' + (ball.dismissal && ball.dismissal.kind !== 'bowler'
+      ? ' · ' + ball.dismissal.kind + ' · ' + ball.dismissal.fielder : '') + (ball.batRuns ? ', ' + ball.batRuns + ' runs' : ''),
   }
   if (ball.kind === 'wide') {
     const runs = ball.physicalRuns + 1
@@ -21,31 +23,34 @@ function deliveryChip(ball: Delivery) {
 
 type Correction = Extract<ScoreOperation, { operation: 'correct' }>
 
-function CorrectDelivery({ ball, batters, busy, onSave }: {
+function CorrectDelivery({ ball, batters, fielders, busy, onSave }: {
   ball: Delivery
   batters: string[]
+  fielders: string[]
   busy: boolean
   onSave: (ball: Delivery) => void
 }) {
+  const [dismissed, setDismissed] = useState(ball.dismissed ?? '')
   return <form onSubmit={event => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const runs = Number(form.get('runs'))
     const boundary = Number(form.get('boundary')) as 0 | 4 | 6
-    const dismissed = String(form.get('dismissed') ?? '')
     onSave({
       ...ball, batRuns: ball.kind === 'wide' ? 0 : boundary || runs,
       physicalRuns: boundary ? 0 : runs, boundary: boundary || undefined, dismissed: dismissed || undefined,
+      dismissal: dismissed ? readDismissal(form) : undefined,
     })
   }}>
     <label>Runs completed<input type="number" name="runs" min={0} max={100} defaultValue={ball.physicalRuns} required /></label>
     {ball.kind !== 'wide' && <label>Boundary<select name="boundary" defaultValue={ball.boundary ?? 0}>
       <option value={0}>None</option><option value={4}>Four</option><option value={6}>Six</option>
     </select></label>}
-    {ball.kind === 'legal' && <label>Dismissed batter<select name="dismissed" defaultValue={ball.dismissed ?? ''}>
+    {ball.kind === 'legal' && <label>Dismissed batter<select name="dismissed" value={dismissed} onChange={event => setDismissed(event.target.value)}>
       <option value="">None</option>
       {batters.map(batter => <option key={batter}>{batter}</option>)}
     </select></label>}
+    {dismissed && <DismissalFields fielders={fielders} initial={ball.dismissal} legacy />}
     <button disabled={busy}>Save correction</button>
   </form>
 }
@@ -104,7 +109,8 @@ export default function OverTimeline({ match, currentComplete, revision, busy, o
               <summary>Admin corrections</summary>
               <ol>{over.score.deliveries.map((ball, index) => <li key={index}>
                 <details><summary>Delivery {index + 1} · {deliveryChip(ball).label}</summary>
-                  <CorrectDelivery key={revision} ball={ball} batters={match.sides[battingSide(match, innings)]} busy={busy}
+                  <CorrectDelivery key={revision} ball={ball} batters={match.sides[battingSide(match, innings)]}
+                    fielders={match.sides[oppositeSide(battingSide(match, innings))]} busy={busy}
                     onSave={corrected => onCorrect({ operation: 'correct', innings, index: over.start + index, ball: corrected })} />
                 </details>
               </li>)}</ol>

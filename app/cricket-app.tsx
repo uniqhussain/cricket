@@ -7,12 +7,13 @@ import SeriesPanel, { MatchList } from './series-panel'
 import type { MatchListEntry, Series } from './series'
 import MatchScorecard, { LiveFigures } from './match-scorecard'
 import OverTimeline from './over-timeline'
+import { WicketEntry } from './dismissal-fields'
 import MatchToss from './match-toss'
 import BattingPairPicker from './batting-pair'
 import PhotoSignIn from './photo-sign-in'
 import UserSettings, { SharedRequestError, sharedRequest, type SessionUser } from './user-settings'
 import type { Profile } from './profile'
-import { eligibleBowlers, replay, type Delivery } from './scoring'
+import { eligibleBowlers, replay, type Delivery, type Dismissal } from './scoring'
 import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSeconds, frozenOvers, rulesFor, teamLabel, tossSummary, updateMatchFinish, type Account, type Ground, type Match, type RosterPlayer, type ScoreOperation, type SharedMatch } from './match'
 
 const storageKey = 'turf-cricket-match-v1'
@@ -43,6 +44,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const [bowler, setBowler] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(0)
+  const [wicketEntry, setWicketEntry] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const startedAt = match?.startedAt
   const stoppedAt = match?.stoppedAt
@@ -167,6 +169,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       setSetup(null)
       setBowler('')
       setRunning(0)
+      setWicketEntry(false)
       setError('')
     } catch (error) { if (version === selection.current) report(error) }
   }
@@ -238,9 +241,9 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const activeBowler = score?.currentBowler ?? (available.includes(bowler) ? bowler : '')
   const frozenCount = match ? frozenOvers(match, match.innings).at(-1)?.end ?? 0 : 0
 
-  function addBall(kind: Delivery['kind'], runs: number, boundary?: 4 | 6, dismissed?: string, physicalRuns = runs) {
+  function addBall(kind: Delivery['kind'], runs: number, boundary?: 4 | 6, dismissed?: string, physicalRuns = runs, dismissal?: Dismissal) {
     if (!match || !rules || stoppedAt) return
-    const ball: Delivery = { kind, batRuns: runs, boundary, dismissed, bowler: activeBowler, physicalRuns }
+    const ball: Delivery = { kind, batRuns: runs, boundary, dismissed, dismissal, bowler: activeBowler, physicalRuns }
     if (shared) { updateScore({ operation: 'ball', ball }); return }
     try {
       save(applyOperation(match, { operation: 'ball', ball }, true))
@@ -365,17 +368,24 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           {(score.currentBowler ? [score.currentBowler] : available).map(name => <option key={name}>{name}</option>)}
         </select></label>
         <div className="actions scoring-pad">
-          {[0, 1, 2, 3].map(n => <button key={n} disabled={!activeBowler} onClick={() => addBall('legal', n)}>{n}</button>)}
-          {[4, 6].map(n => <button key={n} className={n === 4 ? 'delivery-four' : 'delivery-six'} disabled={!activeBowler}
+          {[0, 1, 2, 3].map(n => <button key={n} disabled={!activeBowler || wicketEntry} onClick={() => addBall('legal', n)}>{n}</button>)}
+          {[4, 6].map(n => <button key={n} className={n === 4 ? 'delivery-four' : 'delivery-six'} disabled={!activeBowler || wicketEntry}
             onClick={() => addBall('legal', n, n as 4 | 6, undefined, 0)}>{n}</button>)}
-          <button className="delivery-wicket" disabled={!activeBowler} onClick={() => addBall('legal', 0, undefined, score.striker)}>Wicket</button>
+          <button className="delivery-wicket" disabled={!activeBowler} aria-expanded={wicketEntry}
+            onClick={() => setWicketEntry(previous => !previous)}>{wicketEntry ? 'Cancel wicket' : 'Wicket'}</button>
         </div>
+        {wicketEntry && activeBowler ? <WicketEntry key={match.innings + ':' + deliveries.length}
+          striker={score.striker} partner={score.partner} fielders={rules.bowlers} onSave={(dismissed, dismissal, runs) => {
+            addBall('legal', runs, undefined, dismissed, runs, dismissal)
+            setWicketEntry(false)
+          }} /> : <>
         <label>Physical runs<input type="number" min="0" value={running} onChange={e => setRunning(Number(e.target.value))} /></label>
         <div className="actions">
           <button disabled={!activeBowler} onClick={() => addBall('legal', running)}>Runs completed</button>
           <button className="delivery-extra" disabled={!activeBowler} onClick={() => addBall('wide', 0, undefined, undefined, running)}>Wide</button>
           <button className="delivery-extra" disabled={!activeBowler} onClick={() => addBall('no-ball', running)}>No-ball</button>
         </div>
+        </>}
       </fieldset></section>}
       {canScore && <section className="actions">
         {!stoppedAt && score.complete && match.innings === 0 && <button disabled={busy} onClick={() => {
