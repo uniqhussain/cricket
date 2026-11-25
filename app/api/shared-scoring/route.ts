@@ -299,7 +299,9 @@ export async function POST(request: Request) {
     const event = {
       operation: body.operation, actorName: member?.player_name || profile?.name || (user.admin ? 'Admin ' : 'Umpire ') + user.id.slice(0, 8),
       innings: body.operation === 'correct' ? body.innings : match.cricket_state.innings,
-      ...(body.operation === 'toss' ? { toss: state.toss } : body.operation === 'correct' ? {
+      ...(body.operation === 'toss' ? { toss: state.toss }
+        : body.operation === 'batters' ? { pair: state.battingPairs?.[state.innings][state.games[state.innings].length] }
+        : body.operation === 'correct' ? {
         delivery: body.index + 1, before: match.cricket_state.games[body.innings as 0 | 1][body.index],
         after: state.games[body.innings as 0 | 1][body.index],
       } : body.operation === 'ball' ? { delivery: state.games[state.innings].length, after: state.games[state.innings].at(-1) }

@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
 import GroundSettings from './ground-settings'
-import MatchScorecard from './match-scorecard'
+import MatchScorecard, { LiveFigures } from './match-scorecard'
 import MatchToss from './match-toss'
+import BattingPairPicker from './batting-pair'
 import PhotoSignIn from './photo-sign-in'
 import UserSettings, { SharedRequestError, sharedRequest, type SessionUser } from './user-settings'
 import type { Profile } from './profile'
@@ -214,11 +215,8 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     if (!match || !rules || stoppedAt) return
     const ball: Delivery = { kind, batRuns: runs, boundary, dismissed, bowler: activeBowler, physicalRuns }
     if (shared) { updateScore({ operation: 'ball', ball }); return }
-    const games: Match['games'] = [...match.games]
-    games[match.innings] = [...games[match.innings], ball]
     try {
-      replay(rules, games[match.innings])
-      save({ ...match, games })
+      save(applyOperation(match, { operation: 'ball', ball }, true))
       setRunning(0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not record the delivery.')
@@ -316,7 +314,15 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
           ? teamLabel(match, battingSide(match, 1)) + ' wins'
           : score.runs === rules.target! - 1 ? 'Match tied' : teamLabel(match, battingSide(match, 0)) + ' wins'}</strong>}
       </section>
-      {canScore && !score.complete && !stoppedAt && <section><fieldset disabled={busy}>
+      {score.pendingPair && !stoppedAt && (canScore
+        ? <BattingPairPicker key={match.innings + ':' + deliveries.length} {...score.pendingPair} busy={busy}
+            onSave={pair => {
+              const action = { operation: 'batters', pair } as const
+              if (shared) updateScore(action)
+              else save(applyOperation(match, action, true))
+            }} />
+        : <section><p>Waiting for the umpire to choose the batting pair.</p></section>)}
+      {canScore && !score.pendingPair && !score.complete && !stoppedAt && <section><fieldset disabled={busy}>
         <legend>Record delivery</legend>
         <p><strong>{score.striker}</strong> on strike{score.partner ? ' · ' + score.partner + ' at the other end' : ' · batting alone'}</p>
         <label>Bowler<select value={activeBowler} disabled={!!score.currentBowler} onChange={e => setBowler(e.target.value)}>
@@ -348,15 +354,14 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
             save({ ...match, innings: 0 })
             return
           }
-          const games: Match['games'] = [...match.games]
-          games[match.innings] = deliveries.slice(0, -1)
-          save({ ...match, games })
+          save(applyOperation(match, { operation: 'undo' }, true))
         }}>{!shared && !deliveries.length && match.innings === 1 ? 'Back to first innings' : 'Undo last delivery'}</button>
         {!shared && (stoppedAt || (score.complete && match.innings === 1)) && <button onClick={() => {
           if (!window.confirm('Clear this saved match and set up another?')) return
           try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
         }}>New match</button>}
       </section>}
+      {!finishedAt && !stoppedAt && <LiveFigures score={score} bowler={activeBowler} />}
       <MatchScorecard key={shared?.id ?? startedAt} match={match} />
       <section><h2>Delivery log</h2>
         {deliveries.length ? <ol>{deliveries.map((ball, i) => <li key={i}>{ball.bowler} · {ball.kind} · {ball.kind === 'wide' ? 1 + ball.physicalRuns : ball.batRuns} runs{ball.dismissed ? ' · ' + ball.dismissed + ' out' : ''}</li>)}</ol> : <p>No deliveries yet.</p>}
@@ -398,6 +403,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         {shared.audit.length ? <ol>{shared.audit.map(entry => <li key={entry.id}>
           {entry.details.actorName ?? entry.actor_id} · {entry.details.toss
             ? 'Recorded toss: ' + teamLabel(match, entry.details.toss.winner) + ' chose to ' + entry.details.toss.decision
+            : entry.details.pair ? 'Set batting pair: ' + entry.details.pair.striker + ' on strike, ' + entry.details.pair.partner + ' at the other end'
             : entry.action === 'lock' ? 'Locked over ' + entry.details.over
             : ({ ball: 'Recorded a delivery', correct: 'Corrected a delivery', undo: 'Undid a delivery',
               chase: 'Started the chase', stop: 'Stopped the match', timer: 'Started the timer' }[entry.details.operation ?? ''] ?? entry.action)}

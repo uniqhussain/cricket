@@ -2,6 +2,33 @@ import { useMemo } from 'react'
 import { battingSide, oppositeSide, rulesFor, teamLabel, tossSummary, type Match } from './match'
 import { formatOvers, replay } from './scoring'
 
+export function LiveFigures({ score, bowler }: { score: ReturnType<typeof replay>; bowler: string }) {
+  const batters = score.batting.filter(batter => [score.striker, score.partner].includes(batter.name))
+  const currentBowler = bowler || score.previousBowler
+  const figures = score.bowling.find(item => item.name === currentBowler)
+  return <section aria-label="Live batting and bowling figures">
+    <h2>Live player figures</h2>
+    {!score.pendingPair && <div className="scorecard-table">
+      <table>
+        <caption>Batters at the crease</caption>
+        <thead><tr><th scope="col">Batter</th><th scope="col">R</th><th scope="col">B</th><th scope="col">4s</th><th scope="col">6s</th></tr></thead>
+        <tbody>{batters.map(batter => <tr key={batter.name}>
+          <th scope="row">{batter.name}<small>{batter.name === score.striker ? 'On strike' : 'Other end'}</small></th>
+          <td>{batter.runs}</td><td>{batter.balls}</td><td>{batter.fours}</td><td>{batter.sixes}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+    {currentBowler ? <div className="scorecard-table">
+      <table>
+        <caption>{bowler ? 'Current bowler' : 'Last bowler'}</caption>
+        <thead><tr><th scope="col">Bowler</th><th scope="col">O</th><th scope="col">R</th><th scope="col">W</th></tr></thead>
+        <tbody><tr><th scope="row">{currentBowler}</th><td>{formatOvers(figures?.balls ?? 0)}</td>
+          <td>{figures?.runs ?? 0}</td><td>{figures?.wickets ?? 0}</td></tr></tbody>
+      </table>
+    </div> : <p className="muted">Bowling figures appear when a bowler is selected.</p>}
+  </section>
+}
+
 export default function MatchScorecard({ match }: { match: Match }) {
   const inningsScores = useMemo(() => ([0, 1] as const).map(innings => (
     match.games[innings].length ? replay(rulesFor(match, innings), match.games[innings]) : null
@@ -10,7 +37,7 @@ export default function MatchScorecard({ match }: { match: Match }) {
 
   return <section aria-label="Match scorecard">
     <details open={final}>
-      <summary className="scorecard-title">{final ? 'Final scorecard' : 'Scorecard'}</summary>
+      <summary className="scorecard-title">{final ? 'Final scorecard' : 'Full scorecard'}</summary>
       {match.toss && <p className="muted">{tossSummary(match)}</p>}
       {([0, 1] as const).map(innings => {
         const score = inningsScores[innings]

@@ -13,6 +13,33 @@ const dot = { kind: 'legal', batRuns: 0, physicalRuns: 0, bowler: 'C' }
 const wide = { ...dot, kind: 'wide' }
 const play = (state, balls) => balls.reduce((result, ball) => applyOperation(result, { operation: 'ball', ball }, false), state)
 
+test('choose openers and a replacement pair, then replay the correct batting figures', () => {
+  const lineup = { ...match, sides: [['A', 'B', 'F', 'G'], ['C', 'D']] }
+  const score = state => replay(rulesFor(state, 0), state.games[0])
+  const choose = (state, striker, partner) => applyOperation(state, { operation: 'batters', pair: { striker, partner } }, false)
+  assert.throws(() => play(lineup, [dot]), /Choose both batters/)
+  const opened = choose(lineup, 'F', 'B')
+  const wicket = play(opened, [{ ...dot, dismissed: 'F' }])
+  assert.deepEqual(score(wicket).pendingPair, { survivor: 'B', candidates: ['B', 'A', 'G'] })
+  assert.throws(() => choose(wicket, 'A', 'G'), /surviving batter/)
+  assert.throws(() => choose(wicket, 'F', 'B'), /eligible batters/)
+  const selected = choose(wicket, 'G', 'B')
+  const scored = play(selected, [{ ...dot, batRuns: 1, physicalRuns: 1 }])
+  assert.equal(score(scored).striker, 'B')
+  assert.deepEqual(score(scored).batting.map(batter => [batter.name, batter.runs]), [['F', 0], ['B', 0], ['G', 1], ['A', 0]])
+  const undone = applyOperation(selected, { operation: 'undo' }, false)
+  assert.equal(score(undone).striker, 'F')
+  assert.equal(undone.battingPairs[0][1], undefined)
+})
+
+test('two openers are automatic and the last batter can continue alone', () => {
+  const wicket = play(match, [{ ...dot, dismissed: 'A' }])
+  const score = replay(rulesFor(wicket, 0), wicket.games[0])
+  assert.equal(score.pendingPair, undefined)
+  assert.equal(score.striker, 'B')
+  assert.equal(score.partner, undefined)
+})
+
 test('the toss is required before scoring and all four outcomes choose the batting order', () => {
   const pending = { ...match, toss: undefined }
   assert.equal(awaitingToss(pending), true)

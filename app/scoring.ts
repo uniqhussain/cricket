@@ -4,6 +4,7 @@ export type Delivery = {
   physicalRuns: number
   boundary?: 4 | 6
   dismissed?: string
+  chooseNextPair?: boolean
   bowler: string
 }
 
@@ -13,7 +14,12 @@ export type Rules = {
   bowlers: string[]
   lastMan: boolean
   target?: number
+  chooseOpeners?: boolean
+  battingPairs?: Record<number, BattingPair>
 }
+
+export type BattingPair = { striker: string; partner: string }
+type PendingPair = { candidates: string[]; survivor?: string }
 
 export function formatOvers(balls: number) {
   return Math.floor(balls / 6) + '.' + balls % 6
@@ -56,7 +62,8 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   let extras = 0
   let striker = rules.batters[0]
   let partner: string | undefined = rules.batters[1]
-  let next = 2
+  const entered = new Set([striker, partner])
+  let pendingPair: PendingPair | undefined = rules.chooseOpeners ? { candidates: rules.batters } : undefined
   let currentBowler: string | undefined
   let previousBowler: string | undefined
   let repeatBowler: string | undefined
@@ -70,8 +77,26 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     || wickets >= rules.batters.length - (rules.lastMan ? 0 : 1)
     || (rules.target !== undefined && runs >= rules.target)
 
-  for (const ball of deliveries) {
+  function selectPair(index: number) {
+    const pair = rules.battingPairs?.[index]
+    if (!pair) return
+    if (!pendingPair || !pendingPair.candidates.includes(pair.striker) || !pendingPair.candidates.includes(pair.partner)
+      || pair.striker === pair.partner
+      || (pendingPair.survivor && ![pair.striker, pair.partner].includes(pendingPair.survivor))) {
+      throw new Error('Choose two eligible batters and keep the surviving batter at one end.')
+    }
+    if (index === 0) entered.clear()
+    striker = pair.striker
+    partner = pair.partner
+    entered.add(striker)
+    entered.add(partner)
+    pendingPair = undefined
+  }
+
+  for (const [index, ball] of deliveries.entries()) {
+    selectPair(index)
     if (complete()) throw new Error('The innings is complete.')
+    if (pendingPair) throw new Error('Choose the striker and the batter at the other end before scoring.')
     if (!rules.bowlers.includes(ball.bowler) || ball.bowler === striker || ball.bowler === partner)
       throw new Error('Choose an eligible bowler.')
     if (currentBowler && ball.bowler !== currentBowler) throw new Error('Finish the current over first.')
@@ -113,7 +138,13 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
       wickets++
       bowler.wickets++
       batting.get(ball.dismissed)!.dismissedBy = ball.bowler
-      const replacement: string | undefined = rules.batters[next++]
+      const unused = rules.batters.filter(name => !entered.has(name))
+      const survivor = ball.dismissed === striker ? partner : striker
+      if (ball.chooseNextPair && survivor && unused.length) {
+        pendingPair = { survivor, candidates: [survivor, ...unused] }
+      }
+      const replacement = pendingPair ? undefined : unused[0]
+      if (replacement) entered.add(replacement)
       if (ball.dismissed === striker) {
         striker = replacement ?? partner ?? ''
         if (!replacement) partner = undefined
@@ -135,13 +166,16 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
       }
     }
   }
+  if (complete()) pendingPair = undefined
+  selectPair(deliveries.length)
   if (deliveries.length && !complete()) {
     if (striker) batting.get(striker)!.batted = true
     if (partner) batting.get(partner)!.batted = true
   }
+  const battingOrder = [...[...entered].filter(name => batting.has(name)), ...rules.batters.filter(name => !entered.has(name))]
   return {
-    runs, wickets, extras, legal, striker, partner, currentBowler, previousBowler, quota, repeatBowler,
-    complete: complete(), overs: formatOvers(legal), batting: [...batting.values()], bowling: [...bowling.values()],
+    runs, wickets, extras, legal, striker, partner, pendingPair, currentBowler, previousBowler, quota, repeatBowler,
+    complete: complete(), overs: formatOvers(legal), batting: battingOrder.map(name => batting.get(name)!), bowling: [...bowling.values()],
   }
 }
 
