@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import PasswordInput from './password-input'
 
-export default function PhotoSignIn({ signedIn, onSession }: {
+export default function PhotoSignIn({ signedIn, onSession, rememberSession }: {
   signedIn: boolean
   onSession: (signedIn: boolean) => Promise<void>
+  rememberSession?: boolean
 }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -13,13 +14,13 @@ export default function PhotoSignIn({ signedIn, onSession }: {
     setBusy(true)
     try {
       const response = await fetch('/api/photo-session', { method: 'DELETE' })
-      if (!response.ok) throw new Error('Could not sign out.')
+      if (!response.ok && (await response.json().catch(() => null))?.signedIn !== false)
+        throw new Error('Could not sign out.')
       await onSession(false)
     } catch { setError('Could not sign out.') }
     finally { setBusy(false) }
   }}>Sign out{error && <span role="alert"> · {error}</span>}</button>
-  return <details open><summary>Sign in</summary>
-    <form onSubmit={async event => {
+  return <form className="sign-in-form" onSubmit={async event => {
       event.preventDefault()
       const form = event.currentTarget
       const data = new FormData(form)
@@ -28,7 +29,7 @@ export default function PhotoSignIn({ signedIn, onSession }: {
       try {
         const response = await fetch('/api/photo-session', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier: data.get('identifier'), password: data.get('password') }),
+          body: JSON.stringify({ identifier: data.get('identifier'), password: data.get('password'), rememberSession }),
         })
         const result = await response.json()
         if (!response.ok) throw new Error(result.error)
@@ -41,6 +42,5 @@ export default function PhotoSignIn({ signedIn, onSession }: {
       <PasswordInput label="Password" name="password" required autoComplete="current-password" />
       {error && <p className="error" role="alert">{error}</p>}
       <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-    </form>
-  </details>
+  </form>
 }

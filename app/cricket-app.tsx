@@ -19,7 +19,7 @@ import { applyOperation, awaitingToss, battingSide, canUmpire, elapsedMatchSecon
 
 const storageKey = 'turf-cricket-match-v1'
 
-export default function CricketApp({ loginRequired = false }: { loginRequired?: boolean }) {
+export default function CricketApp({ loginRequired = false, rememberSession = false }: { loginRequired?: boolean; rememberSession?: boolean }) {
   const [localMatch, setLocalMatch] = useState<Match | null>(null)
   const [shared, setShared] = useState<SharedMatch | null>(null)
   const [user, setUser] = useState<SessionUser | null>(null)
@@ -42,6 +42,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
   const currentSeries = series.find(item => item.id === seriesId) ?? series.find(item => !item.ended_at) ?? series[0]
   const pastMatches = matches.filter(item => !item.series_id)
   const [ready, setReady] = useState(false)
+  const [sessionCheckFailed, setSessionCheckFailed] = useState(false)
   const [bowler, setBowler] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(0)
@@ -60,9 +61,9 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
 
   useEffect(() => {
     if (loginRequired) {
-      void refreshSession().catch(report).finally(() => setReady(true))
+      void checkSession()
       const recheck = () => {
-        if (document.visibilityState === 'visible') void refreshSession().catch(report)
+        if (document.visibilityState === 'visible') void checkSession()
       }
       document.addEventListener('visibilitychange', recheck)
       return () => document.removeEventListener('visibilitychange', recheck)
@@ -81,6 +82,22 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     }
     void refreshSession().catch(report)
   }, [loginRequired])
+
+  async function checkSession() {
+    try {
+      await refreshSession()
+      setSessionCheckFailed(false)
+    }
+    catch (error) {
+      setSessionCheckFailed(true)
+      report(error)
+    } finally { setReady(true) }
+  }
+
+  function navigate(view: 'home' | 'settings') {
+    setView(view)
+    window.scrollTo(0, 0)
+  }
 
   function clearSession() {
     sessionVersion.current++
@@ -158,7 +175,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     return () => { active = false; window.clearInterval(timer) }
   }, [sharedId])
 
-  async function openMatch(id: string) {
+  async function openMatch(id: string, scrollToMatch = true) {
     const version = ++selection.current
     try {
       const data = await sharedRequest<{ match: SharedMatch; user: SessionUser }>('?match=' + id)
@@ -172,6 +189,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
       setRunning(0)
       setWicketEntry(false)
       setError('')
+      if (scrollToMatch) window.scrollTo(0, 0)
     } catch (error) { if (version === selection.current) report(error) }
   }
 
@@ -260,10 +278,13 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
 
   if (loginRequired && (!ready || !user)) return <main className="sign-in-screen">
     <header>Turf Cricket</header>
-    <h1>Sign in to Turf Cricket</h1>
-    {error && <p className="error" role="alert">{error}</p>}
-    {!ready ? <p role="status">Checking your session…</p> : <section>
-      <PhotoSignIn signedIn={false} onSession={sessionChanged} />
+    <h1>{!ready || sessionCheckFailed ? 'Turf Cricket' : 'Sign in to Turf Cricket'}</h1>
+    {!ready ? <p role="status">Checking your session…</p> : sessionCheckFailed ? <section>
+      <p role="alert">Couldn’t check your sign-in. Check your connection and try again.</p>
+      <button type="button" onClick={() => { setReady(false); void checkSession() }}>Try again</button>
+    </section> : <section>
+      {error && <p className="error" role="alert">{error}</p>}
+      <PhotoSignIn signedIn={false} onSession={sessionChanged} rememberSession={rememberSession} />
     </section>}
   </main>
 
@@ -271,15 +292,15 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     <header className="site-header">
       Turf Cricket
       <nav className="actions" aria-label="Main navigation">
-        <button type="button" aria-pressed={view === 'home'} onClick={() => setView('home')}>Home</button>
-        <button type="button" aria-pressed={view === 'settings'} onClick={() => setView('settings')}>Settings</button>
+        <button type="button" aria-pressed={view === 'home'} onClick={() => navigate('home')}>Home</button>
+        <button type="button" aria-pressed={view === 'settings'} onClick={() => navigate('settings')}>Settings</button>
       </nav>
     </header>
     {error && <p className="error" role="alert">{error}</p>}
     {view === 'settings' && <>
       <h1>Settings</h1>
       <section className="account-settings">
-        <PhotoSignIn signedIn={Boolean(user)} onSession={sessionChanged} />
+        <PhotoSignIn signedIn={Boolean(user)} onSession={sessionChanged} rememberSession={rememberSession} />
         {!user && <p className="muted">Sign in with an admin account to create new user logins.</p>}
         {user && <UserSettings key={user.id} {...{ user, profile, accounts, profiles }} reload={async () => { await refreshSession() }} />}
       </section>
@@ -309,14 +330,15 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         profiles={profiles} grounds={grounds} openGroundSettings={() => setView('settings')} busy={busy} />}
     </>}
     {match && score && rules && deliveries && <>
-      <button disabled={busy} onClick={() => {
+      <div className="actions match-toolbar"><button disabled={busy} onClick={() => {
         selection.current++
         setShared(null)
         setShowLocal(false)
         setError('')
+        window.scrollTo(0, 0)
         void refreshSession().catch(report)
       }}>Back to matches</button>
-      {shared && <button disabled={busy} onClick={() => void openMatch(shared.id)}>Refresh score</button>}
+      {shared && <button disabled={busy} onClick={() => void openMatch(shared.id, false)}>Refresh score</button>}</div>
       {tossPending ? canScore ? <><MatchToss key={shared?.id} match={match} busy={busy} onSave={toss => {
         const action = { operation: 'toss', toss } as const
         if (shared) updateScore(action)
@@ -329,7 +351,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
         : 'You can view this score. Only admins and match umpires can update it.'}</p>}
       {finishedAt && !stoppedAt && <PosterExport key={(shared?.id ?? startedAt) + ':' + (shared?.revision ?? finishedAt)}
         match={match} metadata={shared?.poster_metadata} />}
-      <section aria-label="Match timing">
+      <section className="match-clock" aria-label="Match timing">
         <h2>Match timer</h2>
         <p className="score" role="timer">{duration}</p>
         {startedAt && <p>Started {new Date(startedAt).toLocaleString()}</p>}
@@ -383,7 +405,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
             setWicketEntry(false)
           }} /> : <>
         <label>Physical runs<input type="number" min="0" value={running} onChange={e => setRunning(Number(e.target.value))} /></label>
-        <div className="actions">
+        <div className="actions scoring-extras">
           <button disabled={!activeBowler} onClick={() => addBall('legal', running)}>Runs completed</button>
           <button className="delivery-extra" disabled={!activeBowler} onClick={() => addBall('wide', 0, undefined, undefined, running)}>Wide</button>
           <button className="delivery-extra" disabled={!activeBowler} onClick={() => addBall('no-ball', running)}>No-ball</button>

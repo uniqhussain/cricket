@@ -91,6 +91,34 @@ main { overflow-wrap: anywhere; }
 .over-card summary { cursor: pointer; }
 button, input, select { max-width: 100%; min-width: 0; }
 .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sign-in-form > button { width: 100%; margin-top: 6px; }
+.match-toolbar { margin-bottom: 14px; }
+@media (max-width: 600px) {
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 9px 0;
+    border-bottom: 1px solid #344a42;
+    background: #0e1917;
+  }
+  .site-header button { min-height: 44px; padding-inline: 11px; }
+  .match-toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); }
+  .match-clock {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .match-clock h2 { margin: 0; font-size: 1rem; }
+  .match-clock p { margin: 0; }
+  .match-clock .score { font-size: clamp(24px, 8vw, 40px); font-variant-numeric: tabular-nums; }
+  .match-clock p:not(.score), .match-clock button { grid-column: 1 / -1; }
+  .match-clock p:not(.score) { color: #b0c5ba; font-size: .85rem; }
+  .scoring-extras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scoring-extras button { min-height: 50px; }
+  .scoring-extras button:first-child { grid-column: 1 / -1; }
+}
 @media (max-width: 480px) {
   main { padding: 16px 12px 32px; }
   section { padding: 14px; }
