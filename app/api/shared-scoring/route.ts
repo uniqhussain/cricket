@@ -150,7 +150,9 @@ export async function GET(request: Request) {
       + (rows ? '&id=in.(' + rows.map(row => row.match_id).join(',') + ')' : ''),
     )
     const series = await rpc<Series[]>('cricket_series_directory', { actor: user.id })
-    return Response.json({ user, matches, series, profile: profile ?? null })
+    const visibleSeries = series.filter(item => !item.ended_at
+      || item.wins_a + item.wins_b + item.ties + item.live_matches + item.stopped_matches > 0)
+    return Response.json({ user, matches, series: visibleSeries, profile: profile ?? null })
   } catch (error) { return errorResponse(error) }
 }
 

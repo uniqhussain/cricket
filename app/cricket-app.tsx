@@ -290,7 +290,7 @@ export default function CricketApp({ loginRequired = false }: { loginRequired?: 
     {match && <p className="muted">{shared ? 'Shared match · Saved to Supabase' : 'Local match · Saved in this browser'}</p>}
     {!ready && <p>Opening scorer…</p>}
     {ready && !match && <>
-      {user && <SeriesPanel allSeries={series} current={currentSeries} admin={user.admin} busy={busy}
+      {user && <SeriesPanel allSeries={series} current={currentSeries} admin={user.admin} busy={busy} error={error}
         matches={matches.filter(item => item.series_id === currentSeries?.id)} openMatch={id => void openMatch(id)}
         select={id => { setSeriesId(id); setSetup(null) }} addMatch={() => setSetup('shared')}
         start={(name, teamA, teamB) => changeSeries({ operation: 'startSeries', name, teamA, teamB })}
