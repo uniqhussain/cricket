@@ -307,7 +307,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
       {user?.admin && <GroundSettings grounds={grounds} addGround={addGround} />}
     </>}
     <div hidden={view !== 'home'}>
-    <h1>{match ? tossPending ? 'Match toss' : 'Match scorer' : 'Cricket matches'}</h1>
+    <h1 className={match ? undefined : 'match-directory-title'}>{match ? tossPending ? 'Match toss' : 'Match scorer' : 'Cricket matches'}</h1>
     {match && <p className="muted">{shared ? 'Shared match · Saved to Supabase' : 'Local match · Saved in this browser'}</p>}
     {!ready && <p>Opening scorer…</p>}
     {ready && !match && <>
@@ -366,7 +366,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
           else save({ ...match, stoppedAt: Date.now() })
         }}>Stop match</button>}
       </section>
-      <section aria-live="polite">
+      <section className="match-score-panel" aria-live="polite">
         {match.ground && <p className="muted">{match.ground.name}</p>}
         {match.toss && <p>{tossSummary(match)}</p>}
         <div>{teamLabel(match, battingSide(match, match.innings))} batting</div>
