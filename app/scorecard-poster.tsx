@@ -38,7 +38,9 @@ export default function ScorecardPoster({ data, sections, compact, page, pageCou
     <img className="poster-stadium" src={stadiumBackground} alt="" width={posterWidth} height={posterHeight} />
     <div className="poster-content">
       <header className="poster-header">
-        <div className="poster-brand">Turf Cricket</div>
+        <div className={'poster-brand' + (data.matchNumber ? ' poster-match-number' : '')}>
+          {data.matchNumber ? 'Match ' + data.matchNumber : 'Turf Cricket'}
+        </div>
         <h1>{data.teams[0]} <span>vs</span> {data.teams[1]}</h1>
         {data.metadata.map(item => <p key={item}>{item}</p>)}
         <div className="poster-label">{data.label ?? 'Match scorecard'}</div>

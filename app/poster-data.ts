@@ -40,7 +40,7 @@ export type PosterSection = {
   tables: PosterTable[]
 }
 export type PosterSelection = 0 | 1 | 'impact'
-type PosterPage = { teams: [string, string]; metadata: string[]; result: string; sections: PosterSection[]; label?: string }
+type PosterPage = { teams: [string, string]; metadata: string[]; result: string; sections: PosterSection[]; label?: string; matchNumber?: number }
 export type PosterData = PosterPage & { text: string }
 
 function verifyInnings(score: InningsScore, deliveries: Delivery[]) {
@@ -173,6 +173,9 @@ export function buildPosterData(match: Match, source?: MatchPosterMetadata, sele
   if (typeof selection === 'number' && !match.games[selection].length) throw new Error('No deliveries were recorded for this innings.')
   const selectedSections = selection === undefined ? sections : [selection === 'impact' ? sections[2] : sections[selection]]
   const label = selection === undefined ? undefined : selection === 'impact' ? 'Match impact' : 'Innings scorecard'
-  const data: PosterPage = { teams: [teamLabel(match, 0), teamLabel(match, 1)], metadata, result, sections: selectedSections, label }
+  const data: PosterPage = {
+    teams: [teamLabel(match, 0), teamLabel(match, 1)], metadata, result, sections: selectedSections, label,
+    matchNumber: selection === undefined ? series?.matchNumber : undefined,
+  }
   return { ...data, text: makeText(data) }
 }

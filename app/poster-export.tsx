@@ -110,7 +110,7 @@ export default function PosterExport({ match, metadata }: { match: Match; metada
           <button type="button" onClick={() => setPage(page + 1)} disabled={page + 1 === images.files.length}>Next</button>
         </div>}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="poster-preview" src={images.urls[page]} width="1080" height="1920"
+        <img className="poster-preview" src={images.urls[page]} width="1080"
           alt={images.data.teams.join(' vs ') + ' scorecard, page ' + (page + 1)} />
       </>}
     </dialog>

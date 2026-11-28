@@ -27,6 +27,7 @@ const fixture = {
 test('poster verifies a chase with reversed batting order, extras and a run-out', () => {
   const poster = buildPosterData(fixture, { createdAt: '2026-11-25', series: { number: 2, matchNumber: 4, name: 'Night Series' } })
   assert.equal(poster.result, 'Emerald won by 1 wicket')
+  assert.equal(poster.matchNumber, 4)
   assert.deepEqual(poster.metadata, ['Series 2 · Match 4 · Night Series', '25 Nov 2026 · Turf Ground'])
   assert.deepEqual(poster.sections[0].innings, { battingTeam: 'Navy', score: '2/0', overs: '1.0', extras: 2 })
   assert.deepEqual(poster.sections[0].tables[1].rows[0], ['Arun', '1.0', '0', '2', '0', '1', '1', '2.0'])

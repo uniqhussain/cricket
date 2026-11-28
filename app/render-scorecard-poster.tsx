@@ -4,6 +4,9 @@ import { getFontEmbedCSS, toBlob } from 'html-to-image'
 import ScorecardPoster, { posterHeight, posterWidth, stadiumBackground } from './scorecard-poster'
 import type { PosterData, PosterSection, PosterTable } from './poster-data'
 
+const maxCombinedHeight = 4096
+const bottomPadding = 55
+
 function paginate(sections: PosterSection[], fits: (page: PosterSection[]) => boolean) {
   const pages: PosterSection[][] = []
   let page: PosterSection[] = []
@@ -66,22 +69,30 @@ export async function renderPoster(data: PosterData, filename = 'turf-cricket-sc
     return stage.firstElementChild as HTMLElement
   }
   function fits(article: HTMLElement) {
+    return requiredHeight(article) <= article.getBoundingClientRect().height
+  }
+  function requiredHeight(article: HTMLElement) {
     const content = article.querySelector('.poster-content')!
-    return content.getBoundingClientRect().bottom <= article.getBoundingClientRect().bottom - 55
+    return Math.ceil(content.getBoundingClientRect().bottom - article.getBoundingClientRect().top + bottomPadding)
   }
   try {
     let pages = [data.sections]
+    let height = posterHeight
     const compact = !fits(draw(data.sections, false))
-    if (compact && !fits(draw(data.sections, true)))
-      pages = paginate(data.sections, sections => fits(draw(sections, true)))
+    if (compact) {
+      const needed = requiredHeight(draw(data.sections, true))
+      if (!data.label && needed <= maxCombinedHeight) height = Math.max(posterHeight, needed)
+      else if (needed > posterHeight) pages = paginate(data.sections, sections => fits(draw(sections, true)))
+    }
     const fontEmbedCSS = await getFontEmbedCSS(draw(pages[0], compact))
     if (!fontEmbedCSS.includes('data:')) throw new Error('The poster font could not be loaded.')
     const files: File[] = []
     for (const [index, sections] of pages.entries()) {
       const article = draw(sections, compact, index + 1, pages.length)
+      article.style.height = height + 'px'
       if (!fits(article)) throw new Error('A scorecard page is too large to export.')
       const png = await toBlob(article, {
-        width: posterWidth, height: posterHeight, pixelRatio: 1, fontEmbedCSS, type: 'image/png',
+        width: posterWidth, height, pixelRatio: 1, fontEmbedCSS, type: 'image/png',
       })
       if (!png?.size) throw new Error('The PNG could not be created.')
       const suffix = pages.length > 1 ? '-page-' + (index + 1) : ''

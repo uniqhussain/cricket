@@ -47,6 +47,7 @@
   text-transform: uppercase;
   text-shadow: 0 5px 18px #031426;
 }
+.poster-match-number { font-style: normal; text-transform: none; letter-spacing: -.035em; }
 .poster-label {
   padding: 6px 30px;
   border: 2px solid #99f3ae;
