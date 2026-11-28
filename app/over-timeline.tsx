@@ -6,8 +6,9 @@ import type { Delivery } from './scoring'
 function deliveryChip(ball: Delivery) {
   if (ball.dismissed) return {
     tone: 'wicket', text: ball.batRuns ? 'W+' + ball.batRuns : 'W',
-    label: ball.dismissed + ' out' + (ball.dismissal && ball.dismissal.kind !== 'bowler'
-      ? ' · ' + ball.dismissal.kind + ' · ' + ball.dismissal.fielder : '') + (ball.batRuns ? ', ' + ball.batRuns + ' runs' : ''),
+    label: ball.dismissed + (ball.dismissal?.kind === 'bowled' ? ' bowled · ' + ball.bowler : ' out')
+      + (ball.dismissal && 'fielder' in ball.dismissal ? ' · ' + ball.dismissal.kind + ' · ' + ball.dismissal.fielder : '')
+      + (ball.batRuns ? ', ' + ball.batRuns + ' runs' : ''),
   }
   if (ball.kind === 'wide') {
     const runs = ball.physicalRuns + 1

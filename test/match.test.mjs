@@ -16,6 +16,51 @@ const play = (state, balls) => balls.reduce((result, ball) => applyOperation(res
 const choose = (state, striker, partner) => applyOperation(state, { operation: 'batters', pair: { striker, partner } }, false)
 const opened = choose(match, 'A', 'B')
 
+test('series batting order starts the match without recording a new toss', () => {
+  const next = { ...match, toss: undefined, batFirst: 1 }
+  assert.equal(awaitingToss(next), false)
+  assert.equal(battingSide(next, 0), 1)
+  assert.equal(battingSide(next, 1), 0)
+  assert.deepEqual(rulesFor(next, 0).batters, ['C', 'D'])
+  assert.throws(() => applyOperation(next, { operation: 'toss', toss: match.toss }, true), /cannot be changed/)
+})
+
+test('retired hurt consumes no ball or wicket and the batter can return at a wicket', () => {
+  const start = choose({ ...match, sides: [['A', 'B', 'E'], ['C', 'D']] }, 'A', 'B')
+  const first = play(start, [{ ...dot, batRuns: 4, boundary: 4 }])
+  const retired = applyOperation(first, { operation: 'retire', batter: 'A', replacement: 'E' }, false)
+  const after = replay(rulesFor(retired, 0), retired.games[0])
+  assert.deepEqual([after.runs, after.legal, after.wickets, after.striker], [4, 1, 0, 'E'])
+  assert.equal(after.batting.find(batter => batter.name === 'A').retiredHurt, true)
+  const undone = applyOperation(retired, { operation: 'undo' }, false)
+  assert.deepEqual(replay(rulesFor(undone, 0), undone.games[0]), replay(rulesFor(first, 0), first.games[0]))
+  const wicket = play(retired, [{ ...dot, dismissed: 'E', dismissal: { kind: 'bowled' } }])
+  assert.deepEqual(replay(rulesFor(wicket, 0), wicket.games[0]).pendingPair.candidates, ['B', 'A'])
+  const returned = choose(wicket, 'A', 'B')
+  const score = replay(rulesFor(returned, 0), returned.games[0])
+  assert.equal(score.striker, 'A')
+  assert.equal(score.batting.find(batter => batter.name === 'A').retiredHurt, undefined)
+  assert.equal(score.batting.find(batter => batter.name === 'A').runs, 4)
+  assert.equal(score.batting.find(batter => batter.name === 'E').dismissal.kind, 'bowled')
+  assert.equal(score.bowling[0].wickets, 1)
+})
+
+test('retiring with no replacement follows the last-batter rule and leaves frozen overs intact', () => {
+  const over = play(opened, Array(6).fill(dot))
+  const operation = { operation: 'retire', batter: 'A' }
+  const retired = applyOperation(over, operation, false)
+  const score = replay(rulesFor(retired, 0), retired.games[0])
+  assert.deepEqual([score.striker, score.partner, score.complete, score.wickets], ['B', undefined, false, 0])
+  assert.deepEqual(frozenOvers(retired, 0), frozenOvers(over, 0))
+  assert.deepEqual(frozenOvers(applyOperation(retired, { operation: 'undo' }, false), 0), frozenOvers(over, 0))
+  const ends = applyOperation({ ...over, lastMan: false }, operation, false)
+  assert.equal(replay(rulesFor(ends, 0), ends.games[0]).complete, true)
+  const lastBatter = play(retired, [{ ...dot, bowler: 'D', dismissed: 'B', dismissal: { kind: 'bowled' } }])
+  const afterWicket = replay(rulesFor(lastBatter, 0), lastBatter.games[0])
+  assert.equal(afterWicket.complete, true)
+  assert.equal(afterWicket.batting.find(batter => batter.name === 'A').retiredHurt, true)
+})
+
 test('over cards include extras, preserve delivery order, and show an incomplete over', () => {
   const four = { ...dot, batRuns: 4, boundary: 4 }
   const state = play(opened, [four, wide, dot, dot, dot, dot, dot, { ...wide, bowler: 'D' }])

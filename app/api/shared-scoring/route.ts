@@ -1,6 +1,6 @@
 import { signedInUser } from '../photo-session/auth'
-import { applyOperation, canUmpire, frozenOvers, matchWinner, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type MatchPosterMetadata, type RosterPlayer, type ScoreOperation } from '../../match'
-import type { Series } from '../../series'
+import { applyOperation, battingSide, canUmpire, frozenOvers, matchWinner, teamLabel, type Account, type AccountRole, type AuditEntry, type Ground, type Match, type MatchPosterMetadata, type RosterPlayer, type ScoreOperation } from '../../match'
+import type { Series, SeriesSetup } from '../../series'
 import { loginIdentifier, minPasswordLength, playerUsername } from '../../player-login'
 import { validatePlayerDetails, type PlayerDetails, type Profile } from '../../profile'
 import { ownsPhotoLink } from '../player-photos/photo-link'
@@ -123,17 +123,47 @@ async function matchDetails(match: MatchRow) {
   return { ...details, series_ended_at: series?.ended_at ?? null, audit, poster_metadata }
 }
 
+async function previousSeriesMatch(seriesId: string) {
+  const scope = '&series_id=eq.' + seriesId + '&archived_at=is.null&cricket_state=not.is.null&order=created_at.desc,id.desc&limit=1'
+  const [[last], [winner]] = await Promise.all([
+    db<{ id: string; cricket_state: Match }[]>('matches?select=id,cricket_state' + scope),
+    db<{ winner_side: 0 | 1 }[]>('matches?select=winner_side&status=eq.complete&winner_side=not.is.null' + scope),
+  ])
+  const previous = last?.cricket_state
+  const batFirst = winner?.winner_side ?? (previous && (previous.toss || previous.batFirst !== undefined)
+    ? battingSide(previous, 0) : undefined)
+  return { last, batFirst }
+}
+
+async function seriesSetup(seriesId: string): Promise<SeriesSetup> {
+  const { last, batFirst } = await previousSeriesMatch(seriesId)
+  if (!last) return { members: [[], []] }
+  const roster = await db<RosterPlayer[]>('match_players?select=user_id,player_name,team&match_id=eq.' + last.id)
+  const state = last.cricket_state
+  const members: SeriesSetup['members'] = [
+    state.sides[0].flatMap(name => roster.filter(item => item.team === 0 && item.player_name === name).map(item => item.user_id)),
+    state.sides[1].flatMap(name => roster.filter(item => item.team === 1 && item.player_name === name).map(item => item.user_id)),
+  ]
+  return { members, batFirst, groundId: state.ground?.id, nicknames: state.teamNicknames, overs: state.overs, lastMan: state.lastMan }
+}
+
 export async function GET(request: Request) {
   try {
     const user = await session()
     const params = new URL(request.url).searchParams
-    if (!user && (params.has('match') || params.has('users'))) throw new RequestError('Sign in to continue.', 401)
+    if (!user && (params.has('match') || params.has('users') || params.has('seriesSetup'))) throw new RequestError('Sign in to continue.', 401)
     if (!user) return Response.json({ user: null, matches: [], series: [], configured: Boolean(
       process.env.SUPABASE_URL && (process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY)
       && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY),
     ) })
     const id = params.get('match')
     if (id) return Response.json({ match: await matchDetails(await loadMatch(id, user)), user })
+    if (params.has('seriesSetup')) {
+      if (!user.admin) throw new RequestError('Admin access required.', 403)
+      const seriesId = params.get('seriesSetup')!
+      if (!uuid.test(seriesId)) throw new RequestError('Choose a valid series.', 400)
+      return Response.json(await seriesSetup(seriesId))
+    }
     if (params.has('users')) {
       if (!user.admin) throw new RequestError('Admin access required.', 403)
       const [accounts, profiles, grounds] = await Promise.all([
@@ -333,6 +363,14 @@ export async function POST(request: Request) {
       const [ground] = await db<Ground[]>('cricket_grounds?select=id,name&id=eq.' + groundId)
       if (!ground) throw new RequestError('Choose a saved ground from Settings.', 400)
       const { state, roster } = createState(body.match, body.roster, ground)
+      const defaults = await previousSeriesMatch(body.seriesId)
+      if (defaults.batFirst !== undefined) {
+        const battingOverride = body.match.batFirst
+        if (battingOverride !== undefined && battingOverride !== 0 && battingOverride !== 1)
+          throw new RequestError('Choose which team bats first.', 400)
+        state.batFirst = battingOverride ?? defaults.batFirst
+        state.startedAt = Date.now()
+      }
       const id = await rpc<string>('cricket_create_series_match', {
         actor: user.id, series_key: body.seriesId, title: teamLabel(state, 0) + ' vs ' + teamLabel(state, 1), state, roster,
       })
@@ -349,16 +387,19 @@ export async function POST(request: Request) {
     catch (error) { throw new RequestError(error instanceof Error ? error.message : 'Invalid score update.', 400) }
     const [member] = await db<RosterPlayer[]>('match_players?select=player_name&match_id=eq.' + match.id + '&user_id=eq.' + user.id)
     const [profile] = await db<Profile[]>('cricket_profiles?select=name&user_id=eq.' + user.id)
+    const lastRetirement = match.cricket_state.retirements?.[state.innings].at(-1)
     const event = {
       operation: body.operation, actorName: member?.player_name || profile?.name || (user.admin ? 'Admin ' : 'Umpire ') + user.id.slice(0, 8),
       innings: body.operation === 'correct' ? body.innings : match.cricket_state.innings,
       ...(body.operation === 'toss' ? { toss: state.toss }
         : body.operation === 'batters' ? { pair: state.battingPairs?.[state.innings][state.games[state.innings].length] }
+        : body.operation === 'retire' ? { retirement: state.retirements?.[state.innings].at(-1) }
         : body.operation === 'correct' ? {
         delivery: body.index + 1, before: match.cricket_state.games[body.innings as 0 | 1][body.index],
         after: state.games[body.innings as 0 | 1][body.index],
       } : body.operation === 'ball' ? { delivery: state.games[state.innings].length, after: state.games[state.innings].at(-1) }
-        : body.operation === 'undo' ? { delivery: match.cricket_state.games[state.innings].length, before: match.cricket_state.games[state.innings].at(-1) } : {}),
+        : body.operation === 'undo' ? lastRetirement?.beforeDelivery === match.cricket_state.games[state.innings].length
+          ? { retirement: lastRetirement } : { delivery: match.cricket_state.games[state.innings].length, before: match.cricket_state.games[state.innings].at(-1) } : {}),
     }
     await rpc('cricket_save_match_result', {
       actor: user.id, match_key: match.id, expected_revision: body.revision, state,

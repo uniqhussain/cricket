@@ -14,6 +14,15 @@ export type Series = {
 
 export type MatchListEntry = { id: string; name: string; status: string; series_id?: string | null }
 
+export type SeriesSetup = {
+  members: [string[], string[]]
+  batFirst?: 0 | 1
+  groundId?: string
+  nicknames?: [string, string]
+  overs?: number
+  lastMan?: boolean
+}
+
 export function seriesResult(series: Series) {
   if (!series.ended_at) return null
   const { wins_a, wins_b, ties, team_a, team_b } = series

@@ -34,7 +34,7 @@ export function LiveFigures({ score, bowler }: { score: ReturnType<typeof replay
 
 export default function MatchScorecard({ match, metadata }: { match: Match; metadata?: MatchPosterMetadata }) {
   const inningsScores = useMemo(() => ([0, 1] as const).map(innings => (
-    match.games[innings].length ? replay(rulesFor(match, innings), match.games[innings]) : null
+    match.games[innings].length || match.retirements?.[innings].length ? replay(rulesFor(match, innings), match.games[innings]) : null
   )), [match])
   const final = Boolean(match.finishedAt || match.stoppedAt)
   const impact = useMemo(() => impactPoints(inningsScores), [inningsScores])

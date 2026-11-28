@@ -93,6 +93,7 @@ button, input, select { max-width: 100%; min-width: 0; }
 .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .sign-in-form > button { width: 100%; margin-top: 6px; }
 .match-toolbar { margin-bottom: 14px; }
+.retirement-button { margin-top: 10px; background: transparent; color: inherit; }
 @media (max-width: 600px) {
   .site-header {
     position: sticky;

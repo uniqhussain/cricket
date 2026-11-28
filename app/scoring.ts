@@ -1,4 +1,4 @@
-export type Dismissal = { kind: 'bowler' } | {
+export type Dismissal = { kind: 'bowler' | 'bowled' } | {
   kind: 'caught' | 'stumped' | 'run-out'
   fielder: string
 }
@@ -22,9 +22,11 @@ export type Rules = {
   target?: number
   chooseOpeners?: boolean
   battingPairs?: Record<number, BattingPair>
+  retirements?: Retirement[]
 }
 
 export type BattingPair = { striker: string; partner: string }
+export type Retirement = { beforeDelivery: number; batter: string; replacement?: string }
 type PendingPair = { candidates: string[]; survivor?: string }
 
 export function formatOvers(balls: number) {
@@ -50,6 +52,7 @@ type BattingFigures = {
   sixes: number
   dismissedBy?: string
   dismissal?: Dismissal
+  retiredHurt?: boolean
 }
 
 type BowlingFigures = {
@@ -72,6 +75,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   let striker = rules.batters[0]
   let partner: string | undefined = rules.batters[1]
   const entered = new Set([striker, partner])
+  const retired = new Set<string>()
   let pendingPair: PendingPair | undefined = rules.chooseOpeners ? { candidates: rules.batters } : undefined
   let currentBowler: string | undefined
   let previousBowler: string | undefined
@@ -86,6 +90,15 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   const complete = () => legal >= rules.overs * 6
     || wickets >= rules.batters.length - (rules.lastMan ? 0 : 1)
     || (rules.target !== undefined && runs >= rules.target)
+    || (retired.size > 0 && !pendingPair && (!striker || (!rules.lastMan && !partner)))
+  const availableBatters = () => rules.batters.filter(name => !entered.has(name) || retired.has(name))
+  const retirements = rules.retirements ?? []
+  let retirementIndex = 0
+
+  function activate(name: string) {
+    entered.add(name)
+    retired.delete(name)
+  }
 
   function selectPair(index: number) {
     const pair = rules.battingPairs?.[index]
@@ -98,13 +111,32 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     if (index === 0) entered.clear()
     striker = pair.striker
     partner = pair.partner
-    entered.add(striker)
-    entered.add(partner)
+    activate(striker)
+    activate(partner)
     pendingPair = undefined
+  }
+
+  function applyRetirements(index: number) {
+    while (retirements[retirementIndex]?.beforeDelivery === index) {
+      const { batter, replacement } = retirements[retirementIndex++]
+      if (pendingPair || complete() || !batter || ![striker, partner].includes(batter))
+        throw new Error('Choose an active batter to retire hurt.')
+      const choices = availableBatters()
+      if (replacement ? !choices.includes(replacement) : choices.length > 0)
+        throw new Error('Choose an eligible replacement batter.')
+      batting.get(batter)!.batted = true
+      retired.add(batter)
+      if (replacement) activate(replacement)
+      if (batter === striker) {
+        striker = replacement ?? partner ?? ''
+        if (!replacement) partner = undefined
+      } else partner = replacement
+    }
   }
 
   for (const [index, ball] of deliveries.entries()) {
     selectPair(index)
+    applyRetirements(index)
     if (complete()) throw new Error('The innings is complete.')
     if (pendingPair) throw new Error('Choose the striker and the batter at the other end before scoring.')
     if (!rules.bowlers.includes(ball.bowler) || ball.bowler === striker || ball.bowler === partner)
@@ -122,7 +154,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
       throw new Error('Choose an active batter on a legal delivery.')
     if (ball.dismissal && (!ball.dismissed || (ball.dismissal.kind !== 'run-out' && ball.dismissed !== striker)))
       throw new Error('Only a run-out can dismiss the batter at the other end.')
-    if (ball.dismissal && ball.dismissal.kind !== 'bowler' && !rules.bowlers.includes(ball.dismissal.fielder))
+    if (ball.dismissal && 'fielder' in ball.dismissal && !rules.bowlers.includes(ball.dismissal.fielder))
       throw new Error('Choose a fielder from the bowling team.')
 
     currentBowler = ball.bowler
@@ -154,7 +186,7 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
       const dismissed = batting.get(ball.dismissed)!
       dismissed.dismissedBy = ball.bowler
       dismissed.dismissal = ball.dismissal
-      if (ball.dismissal && ball.dismissal.kind !== 'bowler') {
+      if (ball.dismissal && 'fielder' in ball.dismissal) {
         const { kind, fielder } = ball.dismissal
         const figures = fielding.get(fielder) ?? { name: fielder, catches: 0, stumpings: 0, runOuts: 0 }
         if (kind === 'caught') figures.catches++
@@ -162,13 +194,14 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
         if (kind === 'run-out') figures.runOuts++
         fielding.set(fielder, figures)
       }
-      const unused = rules.batters.filter(name => !entered.has(name))
       const survivor = ball.dismissed === striker ? partner : striker
+      // A batter who is still retired may be picked at the next vacancy, but must not return automatically.
+      const unused = availableBatters().filter(name => !retired.has(name) || Boolean(ball.chooseNextPair && survivor))
       if (ball.chooseNextPair && survivor && unused.length) {
         pendingPair = { survivor, candidates: [survivor, ...unused] }
       }
       const replacement = pendingPair ? undefined : unused[0]
-      if (replacement) entered.add(replacement)
+      if (replacement) activate(replacement)
       if (ball.dismissed === striker) {
         striker = replacement ?? partner ?? ''
         if (!replacement) partner = undefined
@@ -192,6 +225,8 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   }
   if (complete()) pendingPair = undefined
   selectPair(deliveries.length)
+  applyRetirements(deliveries.length)
+  if (retirementIndex !== retirements.length) throw new Error('A retirement is outside the innings.')
   if (deliveries.length && !complete()) {
     if (striker) batting.get(striker)!.batted = true
     if (partner) batting.get(partner)!.batted = true
@@ -199,8 +234,10 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
   const battingOrder = [...[...entered].filter(name => batting.has(name)), ...rules.batters.filter(name => !entered.has(name))]
   return {
     runs, wickets, extras, legal, striker, partner, pendingPair, currentBowler, previousBowler, quota, repeatBowler,
-    complete: complete(), overs: formatOvers(legal), batting: battingOrder.map(name => batting.get(name)!),
+    complete: complete(), overs: formatOvers(legal),
+    batting: battingOrder.map(name => retired.has(name) ? { ...batting.get(name)!, retiredHurt: true } : batting.get(name)!),
     bowling: [...bowling.values()], fielding: [...fielding.values()],
+    availableBatters: availableBatters(),
   }
 }
 

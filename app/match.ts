@@ -1,7 +1,8 @@
-import { replay, type BattingPair, type Delivery, type Dismissal, type Rules } from './scoring.ts'
+import { replay, type BattingPair, type Delivery, type Dismissal, type Retirement, type Rules } from './scoring.ts'
 
 export type Match = {
   toss?: Toss
+  batFirst?: 0 | 1
   startedAt?: number
   stoppedAt?: number
   finishedAt?: number
@@ -12,6 +13,7 @@ export type Match = {
   sides: [string[], string[]]
   games: [Delivery[], Delivery[]]
   battingPairs?: [Record<number, BattingPair>, Record<number, BattingPair>]
+  retirements?: [Retirement[], Retirement[]]
   innings: 0 | 1
   lastMan: boolean
 }
@@ -20,7 +22,7 @@ export type Toss = { winner: 0 | 1; decision: 'bat' | 'bowl' }
 
 export function battingSide(match: Match, innings: 0 | 1): 0 | 1 {
   const toss = match.toss
-  const first: 0 | 1 = toss ? (toss.decision === 'bat' ? toss.winner : oppositeSide(toss.winner)) : 0
+  const first = toss ? (toss.decision === 'bat' ? toss.winner : oppositeSide(toss.winner)) : match.batFirst ?? 0
   return innings === 0 ? first : oppositeSide(first)
 }
 
@@ -29,12 +31,13 @@ export function oppositeSide(side: 0 | 1): 0 | 1 {
 }
 
 export function awaitingToss(match: Match) {
-  return !match.toss && match.innings === 0 && !match.stoppedAt && !match.finishedAt
+  return !match.toss && match.batFirst === undefined && match.innings === 0 && !match.stoppedAt && !match.finishedAt
     && match.games.every(deliveries => deliveries.length === 0)
 }
 
 export function tossSummary(match: Match) {
-  return match.toss ? teamLabel(match, match.toss.winner) + ' won the toss and chose to ' + match.toss.decision + '.' : ''
+  if (match.toss) return teamLabel(match, match.toss.winner) + ' won the toss and chose to ' + match.toss.decision + '.'
+  return match.batFirst === undefined ? '' : teamLabel(match, match.batFirst) + ' bats first.'
 }
 
 export function teamLabel(match: Match, side: 0 | 1) {
@@ -67,7 +70,7 @@ export type AuditEntry = {
   id: number
   actor_id: string
   action: string
-  details: { operation?: string; actorName?: string; innings?: number; over?: number; delivery?: number; toss?: Toss; pair?: BattingPair }
+  details: { operation?: string; actorName?: string; innings?: number; over?: number; delivery?: number; toss?: Toss; pair?: BattingPair; retirement?: Retirement; correction?: string }
   created_at: string
 }
 export type MatchPosterMetadata = { createdAt: string; series?: { name: string; number?: number; matchNumber?: number } }
@@ -82,6 +85,7 @@ export function rulesFor(match: Match, innings: 0 | 1): Rules {
     bowlers: match.sides[oppositeSide(side)],
     lastMan: match.lastMan,
     battingPairs,
+    retirements: match.retirements?.[innings],
     chooseOpeners: match.sides[side].length >= 2 && (!match.games[innings].length || Boolean(battingPairs?.[0])),
     target: innings === 1 ? replay(rulesFor(match, 0), match.games[0]).runs + 1 : undefined,
   }
@@ -131,6 +135,7 @@ export function frozenOvers(match: Match, innings: 0 | 1) {
 export type ScoreOperation =
   | { operation: 'toss'; toss: Toss }
   | { operation: 'batters'; pair: BattingPair }
+  | { operation: 'retire'; batter: string; replacement?: string }
   | { operation: 'ball'; ball: Delivery }
   | { operation: 'correct'; innings: 0 | 1; index: number; ball: Delivery }
   | { operation: 'undo' | 'chase' | 'stop' | 'timer' }
@@ -146,8 +151,8 @@ function validatedBall(ball: Delivery) {
   if (ball.dismissal !== undefined) {
     const info = ball.dismissal
     if (!ball.dismissed || !info || typeof info !== 'object') throw new Error('Choose a dismissed batter.')
-    if (info.kind === 'bowler') dismissal = { kind: 'bowler' }
-    else if (['caught', 'stumped', 'run-out'].includes(info.kind) && typeof info.fielder === 'string')
+    if (info.kind === 'bowler' || info.kind === 'bowled') dismissal = { kind: info.kind }
+    else if ('fielder' in info && ['caught', 'stumped', 'run-out'].includes(info.kind) && typeof info.fielder === 'string')
       dismissal = { kind: info.kind, fielder: info.fielder }
     else throw new Error('Choose a dismissal and fielder.')
   }
@@ -170,6 +175,7 @@ export function applyOperation(match: Match, input: ScoreOperation, admin: boole
   const battingPairs: NonNullable<Match['battingPairs']> = [
     { ...match.battingPairs?.[0] }, { ...match.battingPairs?.[1] },
   ]
+  let retirements = match.retirements
   if (match.stoppedAt && input.operation !== 'correct') throw new Error('The match is stopped.')
   switch (input.operation) {
     case 'batters': {
@@ -186,7 +192,23 @@ export function applyOperation(match: Match, input: ScoreOperation, admin: boole
       games[innings] = [...games[innings], { ...ball, chooseNextPair: ball.dismissed ? true : undefined }]
       break
     }
+    case 'retire': {
+      if (current.complete || typeof input.batter !== 'string'
+        || (input.replacement !== undefined && typeof input.replacement !== 'string'))
+        throw new Error('Choose an active batter and an eligible replacement.')
+      const previous = retirements?.[innings] ?? []
+      if (previous.filter(event => event.beforeDelivery === games[innings].length).some(event => event.batter === input.batter))
+        throw new Error('This batter already retired at this point in the innings.')
+      retirements = [...(retirements ?? [[], []])]
+      retirements[innings] = [...previous, { beforeDelivery: games[innings].length, batter: input.batter, replacement: input.replacement }]
+      break
+    }
     case 'undo': {
+      if (retirements?.[innings].at(-1)?.beforeDelivery === games[innings].length) {
+        retirements = [...retirements]
+        retirements[innings] = retirements[innings].slice(0, -1)
+        break
+      }
       const frozen = frozenOvers(match, innings).at(-1)?.end ?? 0
       if (games[innings].length <= frozen) throw new Error('This over is frozen. An admin can correct a delivery.')
       delete battingPairs[innings][games[innings].length]
@@ -219,7 +241,7 @@ export function applyOperation(match: Match, input: ScoreOperation, admin: boole
     default:
       throw new Error('Unknown score update.')
   }
-  const updated = { ...match, games, battingPairs }
+  const updated = { ...match, games, battingPairs, ...(retirements ? { retirements } : {}) }
   const first = replay(rulesFor(updated, 0), games[0])
   if (innings === 1 && !first.complete) throw new Error('This correction would reopen the first innings after the chase began.')
   if (innings === 1) replay(rulesFor(updated, 1), games[1])

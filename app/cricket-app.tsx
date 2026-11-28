@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from 'react'
 import TeamSetup from './team-setup'
 import GroundSettings from './ground-settings'
 import SeriesPanel, { MatchList } from './series-panel'
-import type { MatchListEntry, Series } from './series'
+import type { MatchListEntry, Series, SeriesSetup } from './series'
 import MatchScorecard, { LiveFigures } from './match-scorecard'
 import PosterExport from './poster-export'
 import OverTimeline from './over-timeline'
-import { WicketEntry } from './dismissal-fields'
+import { RetirementEntry, WicketEntry } from './dismissal-fields'
 import MatchToss from './match-toss'
 import BattingPairPicker from './batting-pair'
 import PhotoSignIn from './photo-sign-in'
@@ -32,6 +32,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
   const [grounds, setGrounds] = useState<Ground[]>([])
   const [view, setView] = useState<'home' | 'settings'>('home')
   const [setup, setSetup] = useState<'shared' | 'local' | null>(null)
+  const [seriesDefaults, setSeriesDefaults] = useState<SeriesSetup>()
   const [showLocal, setShowLocal] = useState(false)
   const [busy, setBusy] = useState(false)
   const writing = useRef(false)
@@ -47,6 +48,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
   const [error, setError] = useState('')
   const [running, setRunning] = useState(0)
   const [wicketEntry, setWicketEntry] = useState(false)
+  const [retirementEntry, setRetirementEntry] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const startedAt = match?.startedAt
   const stoppedAt = match?.stoppedAt
@@ -188,6 +190,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
       setBowler('')
       setRunning(0)
       setWicketEntry(false)
+      setRetirementEntry(false)
       setError('')
       if (scrollToMatch) window.scrollTo(0, 0)
     } catch (error) { if (version === selection.current) report(error) }
@@ -235,6 +238,19 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
     finally { writing.current = false; setBusy(false) }
   }
 
+  async function openSeriesSetup() {
+    if (!currentSeries || currentSeries.ended_at || writing.current) return
+    writing.current = true
+    setBusy(true)
+    setError('')
+    try {
+      const defaults = await sharedRequest<SeriesSetup>('?seriesSetup=' + currentSeries.id)
+      setSeriesDefaults(defaults)
+      setSetup('shared')
+    } catch (error) { report(error) }
+    finally { writing.current = false; setBusy(false) }
+  }
+
   function save(updated: Match) {
     try {
       const timed = updateMatchFinish(updated)
@@ -259,6 +275,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
   const available = rules && score ? eligibleBowlers(rules, score) : []
   const activeBowler = score?.currentBowler ?? (available.includes(bowler) ? bowler : '')
   const frozenCount = match ? frozenOvers(match, match.innings).at(-1)?.end ?? 0 : 0
+  const canUndoRetirement = match && match.retirements?.[match.innings].at(-1)?.beforeDelivery === deliveries?.length
 
   function addBall(kind: Delivery['kind'], runs: number, boundary?: 4 | 6, dismissed?: string, physicalRuns = runs, dismissal?: Dismissal) {
     if (!match || !rules || stoppedAt) return
@@ -313,7 +330,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
     {ready && !match && <>
       {user && <SeriesPanel allSeries={series} current={currentSeries} admin={user.admin} busy={busy} error={error}
         matches={matches.filter(item => item.series_id === currentSeries?.id)} openMatch={id => void openMatch(id)}
-        select={id => { setSeriesId(id); setSetup(null) }} addMatch={() => setSetup('shared')}
+        select={id => { setSeriesId(id); setSetup(null) }} addMatch={() => void openSeriesSetup()}
         start={(name, teamA, teamB) => changeSeries({ operation: 'startSeries', name, teamA, teamB })}
         finish={() => {
           if (currentSeries && window.confirm('End this series and finalize the result?'))
@@ -327,6 +344,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
       {setup && (setup !== 'shared' || (currentSeries && !currentSeries.ended_at))
         && <TeamSetup key={setup + (currentSeries?.id ?? '')} onStart={createMatch} accounts={setup === 'shared' ? accounts : undefined}
         seriesTeams={setup === 'shared' && currentSeries ? [currentSeries.team_a, currentSeries.team_b] : undefined}
+        defaults={setup === 'shared' ? seriesDefaults : undefined}
         profiles={profiles} grounds={grounds} openGroundSettings={() => setView('settings')} busy={busy} />}
     </>}
     {match && score && rules && deliveries && <>
@@ -368,7 +386,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
       </section>
       <section className="match-score-panel" aria-live="polite">
         {match.ground && <p className="muted">{match.ground.name}</p>}
-        {match.toss && <p>{tossSummary(match)}</p>}
+        {tossSummary(match) && <p>{tossSummary(match)}</p>}
         <div>{teamLabel(match, battingSide(match, match.innings))} batting</div>
         <p className="score">{score.runs}/{score.wickets}</p>
         <p>{score.overs} / {rules.overs} overs · {score.extras} extras</p>
@@ -393,13 +411,23 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
           {(score.currentBowler ? [score.currentBowler] : available).map(name => <option key={name}>{name}</option>)}
         </select></label>
         <div className="actions scoring-pad">
-          {[0, 1, 2, 3].map(n => <button key={n} disabled={!activeBowler || wicketEntry} onClick={() => addBall('legal', n)}>{n}</button>)}
-          {[4, 6].map(n => <button key={n} className={n === 4 ? 'delivery-four' : 'delivery-six'} disabled={!activeBowler || wicketEntry}
+          {[0, 1, 2, 3].map(n => <button key={n} disabled={!activeBowler || wicketEntry || retirementEntry} onClick={() => addBall('legal', n)}>{n}</button>)}
+          {[4, 6].map(n => <button key={n} className={n === 4 ? 'delivery-four' : 'delivery-six'} disabled={!activeBowler || wicketEntry || retirementEntry}
             onClick={() => addBall('legal', n, n as 4 | 6, undefined, 0)}>{n}</button>)}
-          <button className="delivery-wicket" disabled={!activeBowler} aria-expanded={wicketEntry}
+          <button className="delivery-wicket" disabled={!activeBowler || retirementEntry} aria-expanded={wicketEntry}
             onClick={() => setWicketEntry(previous => !previous)}>{wicketEntry ? 'Cancel wicket' : 'Wicket'}</button>
         </div>
-        {wicketEntry && activeBowler ? <WicketEntry key={match.innings + ':' + deliveries.length}
+        {retirementEntry ? <RetirementEntry key={match.innings + ':' + deliveries.length + ':' + (match.retirements?.[match.innings].length ?? 0)}
+          active={[score.striker, ...(score.partner ? [score.partner] : [])]} replacements={score.availableBatters}
+          onSave={(batter, replacement) => {
+            const action = { operation: 'retire', batter, replacement } as const
+            if (shared) updateScore(action)
+            else {
+              try { save(applyOperation(match, action, true)) }
+              catch (error) { report(error) }
+            }
+            setRetirementEntry(false)
+          }} /> : wicketEntry && activeBowler ? <WicketEntry key={match.innings + ':' + deliveries.length}
           striker={score.striker} partner={score.partner} fielders={rules.bowlers} onSave={(dismissed, dismissal, runs) => {
             addBall('legal', runs, undefined, dismissed, runs, dismissal)
             setWicketEntry(false)
@@ -411,6 +439,8 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
           <button className="delivery-extra" disabled={!activeBowler} onClick={() => addBall('no-ball', running)}>No-ball</button>
         </div>
         </>}
+        {!wicketEntry && <button type="button" className="retirement-button" aria-expanded={retirementEntry}
+          onClick={() => setRetirementEntry(previous => !previous)}>{retirementEntry ? 'Cancel retirement' : 'Retired hurt'}</button>}
       </fieldset></section>}
       {canScore && <section className="actions">
         {!stoppedAt && score.complete && match.innings === 0 && <button disabled={busy} onClick={() => {
@@ -418,15 +448,15 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
           if (shared) updateScore({ operation: 'chase' })
           else save({ ...match, innings: 1 })
         }}>Start chase</button>}
-        <button disabled={busy || !!stoppedAt || (shared ? deliveries.length <= frozenCount
-          : (frozenCount > 0 && deliveries.length <= frozenCount) || (!deliveries.length && match.innings === 0))} onClick={() => {
+        <button disabled={busy || !!stoppedAt || (!canUndoRetirement && (shared ? deliveries.length <= frozenCount
+          : (frozenCount > 0 && deliveries.length <= frozenCount) || (!deliveries.length && match.innings === 0)))} onClick={() => {
           if (shared) { updateScore({ operation: 'undo' }); return }
-          if (!deliveries.length && match.innings === 1) {
+          if (!canUndoRetirement && !deliveries.length && match.innings === 1) {
             save({ ...match, innings: 0 })
             return
           }
           save(applyOperation(match, { operation: 'undo' }, true))
-        }}>{!shared && !deliveries.length && match.innings === 1 ? 'Back to first innings' : 'Undo last delivery'}</button>
+        }}>{canUndoRetirement ? 'Undo retirement' : !shared && !deliveries.length && match.innings === 1 ? 'Back to first innings' : 'Undo last delivery'}</button>
         {!shared && (stoppedAt || (score.complete && match.innings === 1)) && <button onClick={() => {
           if (!window.confirm('Clear this saved match and set up another?')) return
           try { localStorage.removeItem(storageKey); setLocalMatch(null); setShowLocal(false); setBowler('') } catch { setError('Could not clear this match.') }
@@ -441,6 +471,8 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
           {entry.details.actorName ?? entry.actor_id} · {entry.details.toss
             ? 'Recorded toss: ' + teamLabel(match, entry.details.toss.winner) + ' chose to ' + entry.details.toss.decision
             : entry.details.pair ? 'Set batting pair: ' + entry.details.pair.striker + ' on strike, ' + entry.details.pair.partner + ' at the other end'
+            : entry.details.retirement ? (entry.details.operation === 'undo' ? 'Undid retirement for ' : 'Retired hurt: ') + entry.details.retirement.batter
+            : entry.details.correction ? entry.details.correction
             : entry.action === 'lock' ? 'Locked over ' + entry.details.over
             : ({ ball: 'Recorded a delivery', correct: 'Corrected a delivery', undo: 'Undid a delivery',
               chase: 'Started the chase', stop: 'Stopped the match', timer: 'Started the timer' }[entry.details.operation ?? ''] ?? entry.action)}

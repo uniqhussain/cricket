@@ -8,6 +8,8 @@ export const bowlingColumns = ['Bowler', 'O', 'M', 'R', 'W', 'WD', 'NB', 'Econ']
 export const impactColumns = ['Player', 'Bat', 'Bowl', 'Field', 'Total']
 
 export function battingStatus(batter: InningsScore['batting'][number]) {
+  if (batter.retiredHurt) return 'Retired hurt'
+  if (batter.dismissal?.kind === 'bowled') return 'Bowled · ' + batter.dismissedBy
   if (batter.dismissal?.kind === 'run-out') return 'Run-out · ' + batter.dismissal.fielder
   return batter.dismissedBy ? 'Out · ' + batter.dismissedBy : batter.batted ? 'Not out' : 'Did not bat'
 }
@@ -134,7 +136,8 @@ export function buildPosterData(match: Match, source?: MatchPosterMetadata, sele
       tables: [
         { id: 'batting', title: battingTeam + ' batting', columns: battingColumns,
           rows: score.batting.map(batter => [batter.name, ...battingCells(batter)]),
-          rowNotes: selection === index ? Object.fromEntries(score.batting.map(batter => [batter.name, battingStatus(batter)])) : undefined },
+          rowNotes: Object.fromEntries(score.batting.filter(batter => selection === index || batter.retiredHurt || batter.dismissal?.kind === 'bowled')
+            .map(batter => [batter.name, battingStatus(batter)])) },
         { id: 'bowling', title: bowlingTeam + ' bowling', columns: bowlingColumns,
           rows: score.bowling.map(bowler => [bowler.name, ...bowlingCells(bowler)]) },
       ],

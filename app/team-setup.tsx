@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { Account, Ground, Match, RosterPlayer } from './match'
+import type { SeriesSetup } from './series'
 import { preparePlayerPhoto, uploadPlayerPhoto } from './player-photo'
 import { battingHands, bowlingStyles, roles, type PlayerDetails, type Profile } from './profile'
 
@@ -12,13 +13,14 @@ type Player = PlayerDetails & {
 }
 const registryKey = 'turf-cricket-players-v1'
 
-export default function TeamSetup({ onStart, accounts, profiles = [], grounds, openGroundSettings, seriesTeams, busy }: {
+export default function TeamSetup({ onStart, accounts, profiles = [], grounds, openGroundSettings, seriesTeams, defaults, busy }: {
   onStart: (match: Match, roster?: RosterPlayer[]) => void
   accounts?: Account[]
   profiles?: Profile[]
   grounds: Ground[]
   openGroundSettings: () => void
   seriesTeams?: [string, string]
+  defaults?: SeriesSetup
   busy?: boolean
 }) {
   const [players, setPlayers] = useState<Player[]>([])
@@ -35,14 +37,20 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
   const [uploadedPhoto, setUploadedPhoto] = useState('')
   const [photoInputKey, setPhotoInputKey] = useState(0)
   const [teams, setTeams] = useState<[string, string]>(seriesTeams ?? ['', ''])
-  const [nicknames, setNicknames] = useState<[string, string]>(['', ''])
-  const [oversInput, setOversInput] = useState<string | null>(null)
-  const [members, setMembers] = useState<[string[], string[]]>([[], []])
+  const [nicknames, setNicknames] = useState<[string, string]>(defaults?.nicknames ?? ['', ''])
+  const [oversInput, setOversInput] = useState<string | null>(defaults?.overs === undefined ? null : String(defaults.overs))
+  const [members, setMembers] = useState<[string[], string[]]>(() => {
+    if (!defaults) return [[], []]
+    const eligible = (id: string) => accounts?.some(account => account.id === id && !account.disabled)
+    return [defaults.members[0].filter(eligible), defaults.members[1].filter(eligible)]
+  })
+  const [editingTeams, setEditingTeams] = useState(members.some((team, index) => team.length < 2 || team.length !== defaults?.members[index].length))
+  const [batFirst, setBatFirst] = useState<0 | 1>()
   const [selection, setSelection] = useState<[string, string]>(['', ''])
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(false)
-  const [step, setStep] = useState<'players' | 'teams' | 'rosters'>(accounts ? 'teams' : 'players')
-  const [groundId, setGroundId] = useState('')
+  const [groundId, setGroundId] = useState(grounds.find(ground => ground.id === defaults?.groundId)?.id ?? '')
+  const [step, setStep] = useState<'players' | 'teams' | 'rosters'>(accounts ? groundId ? 'rosters' : 'teams' : 'players')
 
   useEffect(() => {
     try {
@@ -232,15 +240,16 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
       onStart({
         ground, teamNames: [teams[0].trim(), teams[1].trim()],
         teamNicknames: [nicknames[0].trim(), nicknames[1].trim()],
-        sides, overs, lastMan: form.has('lastMan'), games: [[], []], innings: 0,
+        sides, overs, lastMan: form.has('lastMan'), games: [[], []], innings: 0, batFirst,
       }, roster)
     }}>
-      <h2>Assign players to teams</h2>
+      <h2>{defaults?.members.some(team => team.length) ? 'Match setup' : 'Assign players to teams'}</h2>
       {ground && <p className="muted">{ground.name}</p>}
       <p>Choose the openers before scoring. One bowler per team can bowl two overs. No bowler can bowl consecutive overs.</p>
       {accounts && <p>Choose registered players. Admins and assigned players with umpire access can score.</p>}
       {([0, 1] as const).map(index => <fieldset key={index}>
         <legend>Team {index === 0 ? 'A' : 'B'} · {nicknames[index].trim() || teams[index].trim()}</legend>
+        {!editingTeams ? <p>{members[index].map(playerName).join(', ')}</p> : <>
         <ol>{members[index].map(id => <li key={id}>{playerCard(id)} <button type="button" aria-label={'Remove ' + playerName(id) + ' from team'} onClick={() => {
           const updated: [string[], string[]] = [...members]
           updated[index] = members[index].filter(member => member !== id)
@@ -263,11 +272,18 @@ export default function TeamSetup({ onStart, accounts, profiles = [], grounds, o
           setSelection(cleared)
           setError('')
         }}>Add to team</button>
-        <p>{members[index].length} members assigned</p>
+        <p>{members[index].length} members assigned</p></>}
       </fieldset>)}
+      {defaults?.members.some(team => team.length) && <button type="button" onClick={() => setEditingTeams(!editingTeams)}>
+        {editingTeams ? 'Done editing players' : 'Edit players'}
+      </button>}
+      {defaults?.batFirst !== undefined && <label>Batting first<select value={batFirst ?? defaults.batFirst}
+        onChange={event => setBatFirst(event.target.value === '0' ? 0 : 1)}>
+        <option value={0}>{nicknames[0] || teams[0]}</option><option value={1}>{nicknames[1] || teams[1]}</option>
+      </select></label>}
       <label>Overs per innings<input name="overs" type="number" value={oversInput ?? Math.min(5, maxOvers)}
         onChange={event => setOversInput(event.target.value)} min={1} max={maxOvers} required /></label>
-      <label><input style={{ width: 'auto', minHeight: 0 }} type="checkbox" name="lastMan" defaultChecked /> Last batter may continue alone</label>
+      <label><input style={{ width: 'auto', minHeight: 0 }} type="checkbox" name="lastMan" defaultChecked={defaults?.lastMan ?? true} /> Last batter may continue alone</label>
       <div className="actions">
         <button type="button" disabled={busy} onClick={() => { setError(''); setStep('teams') }}>Back to teams</button>
         <button disabled={busy || members.some(team => team.length < 2)}>{busy ? 'Starting match…' : 'Start match'}</button>
