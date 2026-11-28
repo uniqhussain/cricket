@@ -57,9 +57,10 @@ export function WicketEntry({ striker, partner, fielders, onSave }: {
   </form>
 }
 
-export function RetirementEntry({ active, replacements, onSave }: {
+export function RetirementEntry({ active, replacements, retired, onSave }: {
   active: string[]
   replacements: string[]
+  retired: string[]
   onSave: (batter: string, replacement?: string) => void
 }) {
   return <form className="settings-group" onSubmit={event => {
@@ -71,7 +72,7 @@ export function RetirementEntry({ active, replacements, onSave }: {
     <label>Injured batter<select name="batter" required>{active.map(name => <option key={name}>{name}</option>)}</select></label>
     {replacements.length ? <label>Replacement batter<select name="replacement" required defaultValue="">
       <option value="">Choose a batter</option>
-      {replacements.map(name => <option key={name}>{name}</option>)}
+      {replacements.map(name => <option key={name} value={name}>{retired.includes(name) ? name + ' (retired hurt)' : name}</option>)}
     </select></label> : <p className="muted">No replacement batter is available.</p>}
     <button>Confirm retired hurt</button>
   </form>

@@ -272,6 +272,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
   const tossPending = match && awaitingToss(match)
   const deliveries = match && match.games[match.innings]
   const score = rules && deliveries && replay(rules, deliveries)
+  const retiredBatters = score ? score.batting.filter(batter => batter.retiredHurt).map(batter => batter.name) : []
   const available = rules && score ? eligibleBowlers(rules, score) : []
   const activeBowler = score?.currentBowler ?? (available.includes(bowler) ? bowler : '')
   const frozenCount = match ? frozenOvers(match, match.innings).at(-1)?.end ?? 0 : 0
@@ -399,7 +400,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
           : score.runs === rules.target! - 1 ? 'Match tied' : teamLabel(match, battingSide(match, 0)) + ' wins'}</strong>}
       </section>
       {score.pendingPair && !stoppedAt && (canScore
-        ? <BattingPairPicker key={match.innings + ':' + deliveries.length} {...score.pendingPair} busy={busy}
+        ? <BattingPairPicker key={match.innings + ':' + deliveries.length} {...score.pendingPair} busy={busy} retired={retiredBatters}
             onSave={pair => {
               const action = { operation: 'batters', pair } as const
               if (shared) updateScore(action)
@@ -423,7 +424,7 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
             onClick={() => setWicketEntry(previous => !previous)}>{wicketEntry ? 'Cancel wicket' : 'Wicket'}</button>
         </div>
         {retirementEntry ? <RetirementEntry key={match.innings + ':' + deliveries.length + ':' + (match.retirements?.[match.innings].length ?? 0)}
-          active={[score.striker, ...(score.partner ? [score.partner] : [])]} replacements={score.availableBatters}
+          active={[score.striker, ...(score.partner ? [score.partner] : [])]} replacements={score.availableBatters} retired={retiredBatters}
           onSave={(batter, replacement) => {
             const action = { operation: 'retire', batter, replacement } as const
             if (shared) updateScore(action)
