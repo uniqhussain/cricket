@@ -116,6 +116,7 @@
 .mobile-app .match-clock .score { color: var(--mobile-sky); }
 .mobile-app .scoring-pad button { background: #c8e5ff; color: #14253f; }
 .mobile-app .scoring-pad .delivery-four { background: var(--mobile-sky); }
+.mobile-app .scoring-pad .delivery-ground { background: #85efd7; color: #123e3a; }
 .mobile-app .scoring-pad .delivery-six { background: var(--mobile-lime); color: #14200a; }
 .mobile-app .scoring-pad .delivery-wicket { background: var(--mobile-rose); color: #441425; }
 .mobile-app .scoring-extras .delivery-extra { background: var(--mobile-gold); color: #422b11; }

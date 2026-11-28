@@ -145,7 +145,7 @@ function validatedBall(ball: Delivery) {
     || ![ball.batRuns, ball.physicalRuns].every(value => Number.isInteger(value) && value >= 0 && value <= 100)
     || (ball.boundary !== undefined && ball.boundary !== 4 && ball.boundary !== 6)
     || (ball.dismissed !== undefined && typeof ball.dismissed !== 'string')) throw new Error('Invalid delivery.')
-  if (!ball.boundary && ball.kind !== 'wide' && ball.physicalRuns !== ball.batRuns)
+  if (!ball.boundary && !ball.groundRun && ball.kind !== 'wide' && ball.physicalRuns !== ball.batRuns)
     throw new Error('Physical runs must match bat runs for this delivery.')
   let dismissal: Dismissal | undefined
   if (ball.dismissal !== undefined) {
@@ -156,8 +156,8 @@ function validatedBall(ball: Delivery) {
       dismissal = { kind: info.kind, fielder: info.fielder }
     else throw new Error('Choose a dismissal and fielder.')
   }
-  const { kind, bowler, batRuns, physicalRuns, boundary, dismissed } = ball
-  return { kind, bowler, batRuns, physicalRuns, boundary, dismissed, dismissal }
+  const { kind, bowler, batRuns, physicalRuns, boundary, groundRun, dismissed } = ball
+  return { kind, bowler, batRuns, physicalRuns, boundary, groundRun, dismissed, dismissal }
 }
 
 export function applyOperation(match: Match, input: ScoreOperation, admin: boolean) {

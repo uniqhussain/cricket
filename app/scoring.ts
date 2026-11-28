@@ -8,6 +8,7 @@ export type Delivery = {
   batRuns: number
   physicalRuns: number
   boundary?: 4 | 6
+  groundRun?: true
   dismissed?: string
   dismissal?: Dismissal
   chooseNextPair?: boolean
@@ -150,6 +151,9 @@ export function replay(rules: Rules, deliveries: Delivery[]) {
     if (ball.kind === 'wide' && ball.batRuns !== 0) throw new Error('A wide cannot include bat runs.')
     if (ball.boundary && (ball.boundary !== ball.batRuns || ball.physicalRuns !== 0))
       throw new Error('Check the boundary and running details.')
+    if (ball.groundRun !== undefined && (ball.groundRun !== true || ball.kind !== 'legal'
+      || ball.batRuns !== 1 || ball.physicalRuns !== 0 || ball.boundary || ball.dismissed))
+      throw new Error('1G must be one legal ball, with one run and no running or dismissal.')
     if (ball.dismissed && (ball.kind !== 'legal' || ![striker, partner].includes(ball.dismissed)))
       throw new Error('Choose an active batter on a legal delivery.')
     if (ball.dismissal && (!ball.dismissed || (ball.dismissal.kind !== 'run-out' && ball.dismissed !== striker)))

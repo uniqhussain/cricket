@@ -16,6 +16,27 @@ const play = (state, balls) => balls.reduce((result, ball) => applyOperation(res
 const choose = (state, striker, partner) => applyOperation(state, { operation: 'batters', pair: { striker, partner } }, false)
 const opened = choose(match, 'A', 'B')
 
+test('1G counts as a legal batting run without rotating strike within an over', () => {
+  const ground = { ...dot, batRuns: 1, groundRun: true }
+  const state = play(opened, [ground])
+  const score = replay(rulesFor(state, 0), state.games[0])
+  assert.deepEqual([score.runs, score.extras, score.legal, score.striker], [1, 0, 1, 'A'])
+  assert.deepEqual([score.batting[0].runs, score.batting[0].balls, score.bowling[0].runs], [1, 1, 1])
+  assert.equal(state.games[0][0].groundRun, true)
+  const normal = play(state, [{ ...dot, batRuns: 1, physicalRuns: 1 }])
+  assert.equal(replay(rulesFor(normal, 0), normal.games[0]).striker, 'B')
+  assert.throws(() => play(opened, [{ ...ground, physicalRuns: 1 }]), /1G must be/)
+})
+
+test('a sixth-ball 1G preserves the normal over-end change and can be corrected by an admin', () => {
+  const ground = { ...dot, batRuns: 1, groundRun: true }
+  const completeOver = play(opened, [...Array(5).fill(dot), ground])
+  assert.equal(replay(rulesFor(completeOver, 0), completeOver.games[0]).striker, 'B')
+  assert.equal(frozenOvers(completeOver, 0)[0].score.deliveries[5].groundRun, true)
+  const corrected = applyOperation(completeOver, { operation: 'correct', innings: 0, index: 5, ball: dot }, true)
+  assert.equal(replay(rulesFor(corrected, 0), corrected.games[0]).runs, 0)
+})
+
 test('series batting order starts the match without recording a new toss', () => {
   const next = { ...match, toss: undefined, batFirst: 1 }
   assert.equal(awaitingToss(next), false)

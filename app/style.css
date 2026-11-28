@@ -81,6 +81,7 @@ main { overflow-wrap: anywhere; }
 }
 .delivery-dot { background: #32473f; color: #eff7f3; }
 .delivery-runs { background: #d6e9df; color: #193a2c; }
+.delivery-ground { background: #a6ebf3; color: #12404a; }
 .delivery-four { background: #9ceac7; color: #10382b; }
 .delivery-six { background: #bcb3ff; color: #251859; }
 .delivery-wicket { background: #ffb6bd; color: #581b27; }
@@ -128,6 +129,5 @@ button, input, select { max-width: 100%; min-width: 0; }
   .settings-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .settings-nav button { padding-inline: 6px; font-size: .875rem; }
   .scoring-pad { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .scoring-pad button { min-width: 0; min-height: 52px; }
-  .scoring-pad button:last-child { grid-column: span 2; }
+  .scoring-pad button { min-width: 0; min-height: 52px; padding-inline: 4px; }
 }

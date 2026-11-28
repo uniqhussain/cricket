@@ -277,9 +277,12 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
   const frozenCount = match ? frozenOvers(match, match.innings).at(-1)?.end ?? 0 : 0
   const canUndoRetirement = match && match.retirements?.[match.innings].at(-1)?.beforeDelivery === deliveries?.length
 
-  function addBall(kind: Delivery['kind'], runs: number, boundary?: 4 | 6, dismissed?: string, physicalRuns = runs, dismissal?: Dismissal) {
+  function addBall(kind: Delivery['kind'], runs: number, runType?: 4 | 6 | '1G', dismissed?: string, physicalRuns = runs, dismissal?: Dismissal) {
     if (!match || !rules || stoppedAt) return
-    const ball: Delivery = { kind, batRuns: runs, boundary, dismissed, dismissal, bowler: activeBowler, physicalRuns }
+    const groundRun = runType === '1G'
+    const ball: Delivery = { kind, batRuns: runs, boundary: runType === '1G' ? undefined : runType,
+      groundRun: groundRun ? true : undefined, dismissed, dismissal, bowler: activeBowler,
+      physicalRuns: groundRun ? 0 : physicalRuns }
     if (shared) { updateScore({ operation: 'ball', ball }); return }
     try {
       save(applyOperation(match, { operation: 'ball', ball }, true))
@@ -412,6 +415,8 @@ export default function CricketApp({ loginRequired = false, rememberSession = fa
         </select></label>
         <div className="actions scoring-pad">
           {[0, 1, 2, 3].map(n => <button key={n} disabled={!activeBowler || wicketEntry || retirementEntry} onClick={() => addBall('legal', n)}>{n}</button>)}
+          <button className="delivery-ground" title="One run without changing strike" disabled={!activeBowler || wicketEntry || retirementEntry}
+            onClick={() => addBall('legal', 1, '1G')}>1G</button>
           {[4, 6].map(n => <button key={n} className={n === 4 ? 'delivery-four' : 'delivery-six'} disabled={!activeBowler || wicketEntry || retirementEntry}
             onClick={() => addBall('legal', n, n as 4 | 6, undefined, 0)}>{n}</button>)}
           <button className="delivery-wicket" disabled={!activeBowler || retirementEntry} aria-expanded={wicketEntry}

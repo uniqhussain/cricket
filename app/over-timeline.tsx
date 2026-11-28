@@ -4,6 +4,7 @@ import DismissalFields, { readDismissal } from './dismissal-fields'
 import type { Delivery } from './scoring'
 
 function deliveryChip(ball: Delivery) {
+  if (ball.groundRun) return { tone: 'ground', text: '1G', label: 'One run without changing strike' }
   if (ball.dismissed) return {
     tone: 'wicket', text: ball.batRuns ? 'W+' + ball.batRuns : 'W',
     label: ball.dismissed + (ball.dismissal?.kind === 'bowled' ? ' bowled · ' + ball.bowler : ' out')
@@ -36,16 +37,20 @@ function CorrectDelivery({ ball, batters, fielders, busy, onSave }: {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const runs = Number(form.get('runs'))
-    const boundary = Number(form.get('boundary')) as 0 | 4 | 6
+    const runType = form.get('runType')
+    const groundRun = runType === '1G'
+    const boundary = runType === '4' ? 4 : runType === '6' ? 6 : undefined
     onSave({
-      ...ball, batRuns: ball.kind === 'wide' ? 0 : boundary || runs,
-      physicalRuns: boundary ? 0 : runs, boundary: boundary || undefined, dismissed: dismissed || undefined,
+      ...ball, batRuns: groundRun ? 1 : ball.kind === 'wide' ? 0 : boundary ?? runs,
+      physicalRuns: groundRun || boundary ? 0 : runs, boundary, groundRun: groundRun ? true : undefined,
+      dismissed: dismissed || undefined,
       dismissal: dismissed ? readDismissal(form) : undefined,
     })
   }}>
     <label>Runs completed<input type="number" name="runs" min={0} max={100} defaultValue={ball.physicalRuns} required /></label>
-    {ball.kind !== 'wide' && <label>Boundary<select name="boundary" defaultValue={ball.boundary ?? 0}>
-      <option value={0}>None</option><option value={4}>Four</option><option value={6}>Six</option>
+    {ball.kind !== 'wide' && <label>Run type<select name="runType" defaultValue={ball.groundRun ? '1G' : ball.boundary ?? 0}>
+      <option value={0}>Runs completed</option><option value={4}>Four</option><option value={6}>Six</option>
+      {ball.kind === 'legal' && <option value="1G">1G · One run without changing strike</option>}
     </select></label>}
     {ball.kind === 'legal' && <label>Dismissed batter<select name="dismissed" value={dismissed} onChange={event => setDismissed(event.target.value)}>
       <option value="">None</option>
@@ -78,6 +83,7 @@ export default function OverTimeline({ match, currentComplete, revision, busy, o
     {!cards.length ? <p className="muted">No deliveries recorded for {battingTeam} yet.</p> : <>
       <ul className="over-key" aria-label="Delivery symbols">
         <li><span className="delivery-chip delivery-dot">0</span> Dot</li>
+        <li><span className="delivery-chip delivery-ground">1G</span> One run, same striker</li>
         <li><span className="delivery-chip delivery-four">4</span> Four</li>
         <li><span className="delivery-chip delivery-six">6</span> Six</li>
         <li><span className="delivery-chip delivery-wicket">W</span> Wicket</li>
